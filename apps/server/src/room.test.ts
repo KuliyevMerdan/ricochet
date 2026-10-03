@@ -137,6 +137,76 @@ describe('Room', () => {
   });
 });
 
+describe('Room with bots', () => {
+  const bots = (room: Room) => [...room.players.values()].filter((p) => p.bot);
+
+  it('fills itself to botsFillTo with bots, and they leave as people arrive', () => {
+    const room = new Room(1, 1, 0, null, RULES.botsFillTo);
+    const ann = room.add('Ann', 't1', peer().p);
+    expect(bots(room)).toHaveLength(RULES.botsFillTo - 1);
+    expect(room.world.tanks).toHaveLength(RULES.botsFillTo);
+    expect(room.roster().filter((e) => e.bot)).toHaveLength(RULES.botsFillTo - 1);
+    expect(room.roster().find((e) => e.id === ann.id)?.bot).toBe(false);
+
+    room.add('Bob', 't2', peer().p);
+    expect(bots(room)).toHaveLength(RULES.botsFillTo - 2);
+    for (let i = 2; i < RULES.botsFillTo + 1; i++) room.add(`p${i}`, `t${i + 1}`, peer().p);
+    expect(bots(room)).toHaveLength(0);
+    expect(room.humans).toBe(RULES.botsFillTo + 1);
+    expect(room.hasSeat).toBe(true);
+  });
+
+  it('takes a bot back once a person’s grace has run out, and tells everyone', () => {
+    const room = new Room(1, 1, 0, null, RULES.botsFillTo);
+    const a = peer();
+    room.add('Ann', 't1', a.p);
+    const bob = room.add('Bob', 't2', peer().p);
+    room.detach(bob);
+    for (let i = 0; i < RULES.resumeGrace; i++) room.tick();
+    expect(bots(room)).toHaveLength(RULES.botsFillTo - 1);
+    const roster = a.got.filter((m) => m.type === 'roster').at(-1);
+    expect(roster?.type === 'roster' && roster.entries.filter((e) => e.bot)).toHaveLength(
+      RULES.botsFillTo - 1,
+    );
+  });
+
+  it('plays: its bots drive and fire on what they are shown', () => {
+    const room = new Room(1, 7, 0, null, RULES.botsFillTo);
+    room.add('Ann', 't1', peer().p);
+    const start = new Map(room.world.tanks.map((t) => [t.id, t]));
+    let fired = 0;
+    for (let i = 0; i < 30 * 20; i++) {
+      const before = new Set(room.world.shells.map((s) => s.id));
+      room.tick();
+      fired += room.world.shells.filter((s) => !before.has(s.id)).length;
+    }
+    for (const b of bots(room)) {
+      const t = room.world.tanks.find((o) => o.id === b.id);
+      const s = start.get(b.id);
+      expect(t && s && (t.x !== s.x || t.y !== s.y), `${b.name} never moved`).toBe(true);
+    }
+    expect(fired).toBeGreaterThan(10);
+  });
+
+  it('seats people by people, not by tanks', () => {
+    let n = 0;
+    const l = new Lobby({
+      maxRooms: 2,
+      idleTicks: 60,
+      token: () => `tok${n++}`,
+      seed: () => 1,
+      tick: () => 0,
+      botsFillTo: RULES.botsFillTo,
+    });
+    for (let i = 0; i < RULES.roomSize; i++) {
+      l.enter({ type: 'hello', version: 1, token: null, name: `p${i}` }, null, peer().p);
+    }
+    expect(l.rooms).toHaveLength(1);
+    expect(l.players()).toBe(RULES.roomSize);
+    expect(l.bots()).toBe(0);
+  });
+});
+
 describe('Lobby', () => {
   const lobby = (maxRooms = 2) => {
     let n = 0;

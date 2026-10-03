@@ -5,7 +5,7 @@ repository.
 
 ## Project status
 
-> ⚠️ **S0–S3 have landed; nothing on screen yet.** **S0 landed 2026-10-03**: the pnpm + Turborepo
+> ⚠️ **S0–S4 have landed; nothing on screen yet.** **S0 landed 2026-10-03**: the pnpm + Turborepo
 > workspace of ten units, strict TypeScript with no DOM and no Node unless a unit opts in, the
 > dependency graph as dependency-cruiser allow-lists, purity and exactness as ESLint rules — all
 > *proven to fire* against deliberately illegal fixtures — and CI running `pnpm check`. **S1 landed
@@ -19,7 +19,9 @@ repository.
 > server — rooms, a drift-free 30 Hz loop, input queues, a snapshot a tick to every player, resume
 > tokens, its own measure of every socket's round trip; 12 clients on real sockets for five minutes,
 > every tick within 1.77 ms of its deadline at p99 and every client holding exactly the view it was
-> sent. **S4** (bots and the bench) is next.
+> sent. **S4 landed 2026-10-03**: `bots`, which play from a player's view through a player's
+> inputs and fill a room to 6, and the bench: a 12-tank tick 0.11 ms at p99, 1.75 KB/s down to the
+> busiest client against a 6 KB/s budget. **C0** (`netcode`) is next.
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -89,19 +91,19 @@ of it. Enforced by lint since S0 (§ Purity and exactness).
 
 ### Packages
 
-All ten exist since **S0**; four are written. The right-hand column is the block that fills each.
+All ten exist since **S0**; six are written. The right-hand column is the block that fills each.
 
 | Package | Responsibility | Block |
 | --- | --- | --- |
 | `packages/geom` | the world's grid — integers in **eighths** of a unit (`ARENA_EIGHTHS`, `eighths`, `roundHalfAway`); the 1,024-direction table (`COS`, `SIN`, ×2^14), printed by [`golden/directions.py`](packages/geom/golden/directions.py) from one octant and its symmetries, so `reflect` off a face is exact on the index *and* the vector; `step(d, speed)`, `turnToward`, and `nearestDir` — a mouse offset to a direction by cross products, no `atan2`; `circleOverlapsBox` by squared distances; `sweep` — a moving circle against a box grown by its radius, every time a fraction of integers and every comparison a cross-multiplication, returning the first contact and the face it met. Pure and exact | ✅ S1 |
 | `packages/protocol` | the binary wire ([`docs/protocol.md`](docs/protocol.md)): `encodeClient` / `decodeClient`, `encodeServer` / `decodeServer` over `DataView`, little-endian — a read past the end sets a flag instead of throwing, and a frame is refused as a value for truncation, trailing bytes, a reserved bit or a field out of range; `diff(base, next)` and `apply(base, snapshot)` between per-client **views** — tanks by field mask with small `i8` steps, shells once as starting conditions — `apply` refusing a delta not of its base; strict hand-written UTF-8 and `validName`; `RULES`, the game's numbers, here because the bots play by them. Pure | ✅ S1 |
 | `packages/sim` | the room, one tick at a time: `step(world, commands) → { world, events }` — timers and respawn, driving, firing, flight, crates, in that order ([`docs/protocol.md`](docs/protocol.md) § 8.1); `createWorld`, `join`, `leave`. `stepTank(tank, command, arena, obstacles)` — **the prediction's entry point**, the hull turning or reversing toward the stick and the move taken along x then y as far as it is free; `stepShell` — a shell's flight with no tanks, what a client runs on the shells it holds; `fly` / `flyTick` with tanks, sparing the owner until the bounce. `view(world, viewer, events, ack)` — **the one door to the wire**: a square of `viewHalf`, the viewer's timers, events filtered by § 6. A world is plain data — integers, booleans, arrays — and its randomness a mulberry32 state inside it. Returns events; never emits. Pure and exact | ✅ S2 |
-| `packages/bots` | `decide(snapshot, memory) → input` — a path round the walls, aim with lead and a deliberate error, a bank shot when the straight line is blocked. Sees only a snapshot, acts only by inputs. Pure | S4 |
+| `packages/bots` | `decide(view, memory) → { input, memory }` — a bot is handed the view a player in its seat holds and answers with a player's input; its memory goes back to the caller, so it is replayable. `createBot(id, arena, seed, skill)`; `SKILLS` — `spread`, the deliberate aim error in directions (12 / 24 / 40), and whether it banks. Targets the nearest tank it can hurt, a crate at its last hit point, else wanders. `nav.ts`: a 32-unit grid built once per arena (`gridOf`, in a `WeakMap`), Dijkstra distance fields shared between bots (`fieldTo`), `waypoint` — the furthest cell down the field it can drive straight to, 4 units clear of walls. `aim.ts`: `ahead` — where a target will be when the shell arrives, the firing tick included (§ 8.1); `trace` — a shell's two legs flown with `geom` as the server flies them; `shotAt` — straight, else off the wall face whose reflection lands it, clear of its own tank. Pure, not exact: an input may be computed with `atan2` | ✅ S4 |
 | `packages/netcode` | the socket, the handshake, the clock; prediction and reconciliation through `sim.stepTank`; the adaptive interpolation buffer; `frame(now)` — positions for the renderer between ticks. **No DOM**: the socket, timers and clock are handed in, so the browser, the load tool and the tests run the same code | C0 |
 | `packages/renderer` | the arena in Phaser: textures generated at boot, hull and turret, shells, crates, walls, the camera with a lead toward the aim, the minimap, pooled particles. **No protocol** — it draws pictures | C1 |
-| `apps/server` | Fastify for `/health` and `/ready` (the tick's lateness and work at p99 among its numbers); `ws` for the game at `/play`. `Ticker` — one drift-free 30 Hz loop for every room, deadlines from the first tick, sleeping to just short of each and spinning the rest on `setImmediate`. `Room` — a world, its players' input queues (one a tick in `seq` order; a late input holds the stick, not the trigger), a snapshot a tick to each player diffed against the last sent on its socket, the roster, the resume grace, the fast-forward `lead` from the socket's round trip. `Lobby` — the fullest room with a seat, `FULL` past the limit, tokens, idle rooms closed. `Connection` — one socket's protocol: `hello` first, refusals as `VERSION` / `NAME` / `MALFORMED` / `RATE`, `pong`s. `sockets.ts` — the `ws` wiring and the WebSocket-level pings that measure each socket's round trip. `Room`, `Lobby` and `Connection` know no socket | ✅ S3 |
+| `apps/server` | Fastify for `/health` and `/ready` (the tick's lateness and work at p99 among its numbers); `ws` for the game at `/play`. `Ticker` — one drift-free 30 Hz loop for every room, deadlines from the first tick, sleeping to just short of each and spinning the rest on `setImmediate`. `Room` — a world, its players' input queues (one a tick in `seq` order; a late input holds the stick, not the trigger), a snapshot a tick to each player diffed against the last sent on its socket, the roster, the resume grace, the fast-forward `lead` from the socket's round trip; its bots — players with no socket, each deciding from `sim.view` every tick, filled to `botsFillTo` (`RICOCHET_BOTS`), the newest leaving as a person arrives. `Lobby` — the fullest room with a seat, by people not tanks, `FULL` past the limit, tokens, idle rooms closed. `Connection` — one socket's protocol: `hello` first, refusals as `VERSION` / `NAME` / `MALFORMED` / `RATE`, `pong`s. `sockets.ts` — the `ws` wiring and the WebSocket-level pings that measure each socket's round trip. `Room`, `Lobby` and `Connection` know no socket | ✅ S3 · S4 |
 | `apps/web` | Vite, one Phaser game, a DOM layer (name, connection state, scoreboard, overlay); three input schemes; own shells predicted; the server ghost, the overlay, the network lab, the kill replay | C1 · C2 · C3 |
-| `tools/bench` | rooms of bots stepped headless as fast as they go — the tick's cost and the bytes per client, full and delta, to `docs/bench/` | S4 |
+| `tools/bench` | `BotRoom` — a room of bots on `sim` with no server; `bench` — the server's tick (`step`, then a view, a diff and an encode per tank) and the bots timed apart, at p50 / p99; bytes down per client with framing and roster, delta and whole, 30 Hz and 15, deflated alone and in context. `pnpm bench` runs 6, 12 and 24 tanks, writes [`docs/bench/results.md`](docs/bench/results.md), and fails over budget | ✅ S4 |
 | `tools/load` | headless clients through `netcode`, played by `bots`, over the wire against a running server — tick, bandwidth, corrections, reconnects, to `docs/load/` | P0 |
 
 **Phaser draws; `sim` decides.** Phaser 4 (the stable major at S0) is the studio-standard engine for
@@ -194,7 +196,9 @@ package — and `netcode`, which must run in the browser, in Node and in a test 
 | Geometry | the table exactly symmetric, on the unit circle within rounding, turning steadily; a mirrored direction's step the mirrored step at every speed to 320; 10⁶ random shots, radii to 8 units, speeds to twice a shell's, walls from 16 units thick — each sweep meeting the wall on its grown boundary, no later than a 64-point sampling of the move | ✅ S1 |
 | Codec | 100,000 random messages each way decode to themselves; 20,000 ticks of a moving world through `diff`, the bytes and `apply` arrive as the server's view, under 200 bytes a tick | ✅ S1 |
 | World | every rule on staged worlds (23); arena 0's edges, walls apart, spawns and crates clear and reachable; 100,000 random ticks of 12 tanks with players coming and going — no tank in a wall or another tank, no shell in a wall or off the arena, hit points and scores what the events say, every tenth tick every view across the wire; 0 mismatches in 200,000 ticks of `stepTank` replays where no other tank came near; the same seed the same world, and 5,000 ticks pinned to a hash | ✅ S2 |
-| Server | the ticker against a hand-moved clock — deadlines from the first tick under 7 ms of work a tick, a stall caught up, a pause rebased; a room's queues, acks, the held stick, the fast-forward, the grace, the roster; the lobby's filling, `FULL`, resume and expiry; a connection's refusals and pongs · 12 clients on real sockets (`server.test.ts`, ten seconds in CI, `soak` five minutes): every client's view the server's at every tick, every view the world as it stands, tick lateness p99 under 2 ms | ✅ S3 |
+| Server | the ticker against a hand-moved clock — deadlines from the first tick under 7 ms of work a tick, a stall caught up, a pause rebased; a room's queues, acks, the held stick, the fast-forward, the grace, the roster; the lobby's filling, `FULL`, resume and expiry; a connection's refusals and pongs; bots filling a room and leaving as people come, back when a grace runs out, driving and firing · 12 clients on real sockets, with bots until the sixth arrives (`server.test.ts`, ten seconds in CI, `soak` five minutes): every client's view the server's at every tick, every view the world as it stands, tick lateness p99 under 2 ms | ✅ S3 |
+| Bots | the grid open at every spawn and crate and in one piece; a straight-driven point following waypoints from every spawn to every crate and spawn, never touching a wall; lead, the straight shot, the bank shot round a post and none without leave; `decide` firing within its spread, holding fire while reloading, shielded or out of shells, circling, going for a crate, wandering, working loose, pure · in 10 minutes of a bot-only room every bot scores and every bot dies, under a quarter of deaths self-inflicted (`tools/bench`) | ✅ S4 |
+| Bench | `pnpm bench`: a 12-tank tick 0.112 ms at p99 (under 1 ms) and 1.75 KB/s to the busiest client (under 6 KB/s) on one laptop — [`docs/bench/`](docs/bench/README.md) | ✅ S4 |
 | Netcode | a headless client at 150 ± 40 ms for 10 minutes against the real `sim`: prediction equal to the server's after every reconciliation where no other tank touched it | C0 |
 | Browser | 60 fps at 12 tanks and 36 shells on a throttled phone profile, flat memory, an idle hidden tab drawing nothing; no predicted shell shown hitting a tank the server says it missed | C1 · C2 |
 | Load | 240 clients for 30 minutes — every tick on time at p99, under the bandwidth budget, every resume finding its tank | P0 |
@@ -219,9 +223,11 @@ pnpm check
 | `pnpm test` | each unit's own `src/**/*.test.ts` (`config/vitest.package.ts`) |
 | `pnpm test:root` | `tests/` — the rules proven against `config/fixtures/`, the direction table held to its generator (needs `python3`, standard library only), and the protocol document held to the code |
 | `pnpm format` | Prettier. Markdown is excluded: the canon is hand-wrapped |
+| `pnpm bench` | `tools/bench`: rooms of 6, 12 and 24 bots, five minutes each — rewrites `docs/bench/results.md`; fails over S4's budget. Not in `check`: it measures the machine (`--ticks N` for another length) |
 
 The server on its own: `pnpm --filter @ricochet/server dev` (tsx watch, port 8080; `PORT`,
-`HOST`, `RICOCHET_MAX_ROOMS`, `RICOCHET_PING_MS`, `LOG_LEVEL`). `pnpm --filter @ricochet/server
+`HOST`, `RICOCHET_MAX_ROOMS`, `RICOCHET_PING_MS`, `RICOCHET_BOTS` — a room's bot fill, 0 for none —
+`LOG_LEVEL`). `pnpm --filter @ricochet/server
 soak` is S3's five-minute done-when (`RICOCHET_SOAK_S` for another length).
 
 Units resolve each other through their built `dist/` and package `exports`, ordered by Turborepo's
@@ -238,7 +244,8 @@ Log what you hit here as you hit it ([Rule 1](#rule-1--log-the-gaps-you-hit)). O
 writing — the questions [`ROADMAP.md`](ROADMAP.md) leaves to a block:
 
 - **Snapshot rate.** 30 Hz is the plan; whether 15 Hz with a longer interpolation delay looks the
-  same at half the bytes is measured, not argued. S4 measures the bytes, C1 decides the look.
+  same is C1's to decide. The bytes were measured at S4: 0.93 KB/s against 1.75, both far under the
+  6 KB/s budget, so the bytes do not argue for it.
 - **Cross-engine determinism, shown.** `sim` is exact by construction and lint, and the soak pins a
   5,000-tick run to a hash — but only in V8. C1 replays that run in Chromium, Firefox and WebKit
   (Playwright) and requires the same hash; until then "the same in every engine" is argued, not

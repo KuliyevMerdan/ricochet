@@ -1,3 +1,5 @@
+import { RULES } from '@ricochet/protocol';
+
 /** The server's settings, from the environment, with every problem named at once. */
 export interface Config {
   readonly env: 'production' | 'development';
@@ -5,6 +7,8 @@ export interface Config {
   readonly port: number;
   readonly maxRooms: number;
   readonly pingMs: number;
+  /** Bots fill each room to this many tanks. */
+  readonly bots: number;
   readonly logLevel: string;
 }
 
@@ -26,6 +30,7 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): C
     port: int('PORT', 8080, 0, 65535),
     maxRooms: int('RICOCHET_MAX_ROOMS', 50, 1, 1000),
     pingMs: int('RICOCHET_PING_MS', 1000, 50, 60_000),
+    bots: int('RICOCHET_BOTS', RULES.botsFillTo, 0, RULES.roomSize),
     logLevel: env.LOG_LEVEL ?? 'info',
   };
   if (problems.length > 0) throw new Error(`bad configuration:\n  ${problems.join('\n  ')}`);

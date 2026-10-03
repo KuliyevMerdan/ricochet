@@ -40,6 +40,7 @@ export function createServer({ config, logger = true, observe }: ServerOptions):
     token: () => randomBytes(16).toString('hex'),
     seed: () => randomInt(0, 2 ** 32 - 1),
     tick: () => ticker?.phase().tick ?? 0,
+    botsFillTo: config.bots,
     ...(observe ? { observe } : {}),
   });
   ticker = new Ticker(() => lobby.tick(), systemTickerClock(now), RULES.tickHz);
@@ -54,6 +55,7 @@ export function createServer({ config, logger = true, observe }: ServerOptions):
       ready: true,
       rooms: lobby.rooms.length,
       players: lobby.players(),
+      bots: lobby.bots(),
       sockets: sockets.size,
       tick: stats.ticks,
       latenessP99Ms: quantile(stats.lateness, 0.99),

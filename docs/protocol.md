@@ -242,7 +242,8 @@ added twice.
 
 At 12 tanks driving, each a 5-byte relative update, plus the 14-byte head and the five counts:
 about 80 bytes a tick, 2.4 KB/s, before shells and events — which are sent once each, not per
-tick. The budget is **6 KB/s down per client** (ROADMAP S4); `tools/bench` measures it.
+tick. The budget is **6 KB/s down per client** (ROADMAP S4); `tools/bench` measures it: 1.75 KB/s
+to the busiest client of 12 bots fighting, framing included ([`docs/bench/`](bench/README.md)).
 `roundtrip.test.ts` holds a randomly moving world of ~12 tanks and ~10 shells under 200 bytes a tick
 on average.
 
@@ -358,8 +359,10 @@ delay. A square rather than a circle: the screen is a rectangle, and the test is
 - **Snapshot acknowledgements** — TCP makes the last frame sent the baseline (§ 5.2).
 - **Input redundancy** (each input repeated in the next few frames). It is how a UDP game survives
   a lost packet; a WebSocket loses no frame, it stalls them (ADR-0003).
-- **Compression of frames** (`permessage-deflate`). Frames are small and already dense; the CPU
-  and the latency are not worth the bytes. Measured, not argued, in S4.
+- **Compression of frames** (`permessage-deflate`). Frames are small and already dense. Measured in
+  S4 ([`docs/bench/`](bench/README.md)): a delta frame deflated alone keeps 93 % of its size; with
+  context takeover 56 %, at a zlib context per socket and CPU on every frame, to save under 1 KB/s
+  the budget does not need.
 - **Spectating, teams, chat.** Not this project's problem.
 
 ## 10. Decision log

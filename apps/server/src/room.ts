@@ -1,6 +1,9 @@
+import { SKILLS, createBot, decide } from '@ricochet/bots';
+import type { Memory, Skill } from '@ricochet/bots';
 import { RULES, diff, encodeServer } from '@ricochet/protocol';
 import type { GameEvent, Input, RosterEntry, View } from '@ricochet/protocol';
 import { createWorld, join, leave, step, view } from '@ricochet/sim';
+import { arenaOf } from '@ricochet/sim';
 import type { Command, World } from '@ricochet/sim';
 
 /** What a room needs of a connection: somewhere to send frames, and its measured round trip. */
@@ -17,6 +20,8 @@ export interface Player {
   readonly name: string;
   readonly token: string;
   peer: Peer | null;
+  /** A bot's memory; `null` for a person. A bot has no peer and no token, and never drops. */
+  bot: Memory | null;
   /** Inputs received and not yet applied, in `seq` order. */
   queue: Input[];
   /** The newest `seq` received — older or repeated ones are ignored. */
@@ -42,6 +47,22 @@ export interface TickRecord {
 
 export type Observer = (record: TickRecord) => void;
 
+/** The bots' names, and the skills they play at — one of each, so a room is a mix, not a mirror. */
+const BOTS: readonly (readonly [string, Skill])[] = [
+  ['Rook', SKILLS.normal],
+  ['Flint', SKILLS.hard],
+  ['Rivet', SKILLS.easy],
+  ['Ember', SKILLS.normal],
+  ['Torque', SKILLS.hard],
+  ['Anvil', SKILLS.easy],
+  ['Piston', SKILLS.normal],
+  ['Havoc', SKILLS.hard],
+  ['Brass', SKILLS.easy],
+  ['Spark', SKILLS.normal],
+  ['Mortar', SKILLS.hard],
+  ['Bolt', SKILLS.easy],
+];
+
 /**
  * One room: a world, its players, their input queues and their sockets' baselines. It knows nothing
  * of WebSockets — a player's socket is a `Peer` — so the whole of a tick is testable without one.
@@ -51,16 +72,20 @@ export class Room {
   readonly players = new Map<number, Player>();
   /** Events between ticks (a spawn on joining) that ride the next tick's snapshot. */
   private pending: GameEvent[] = [];
+  /** The last tick's events — what a bot's view carries, as a player's snapshot did. */
+  private lastEvents: readonly GameEvent[] = [];
   private nextId = 1;
   /** Ticks in a row with no connected player. */
   idleTicks = 0;
 
   constructor(
     readonly id: number,
-    seed: number,
+    private readonly seed: number,
     /** The global tick this room's tick 0 is — `world.tick = global − openedAt`. */
     readonly openedAt: number,
     private readonly observe: Observer | null = null,
+    /** Bots fill the room to this many tanks and leave as people arrive (`RULES.botsFillTo`). */
+    private readonly botsFillTo = 0,
   ) {
     this.world = createWorld(seed);
   }
@@ -71,12 +96,25 @@ export class Room {
     return n;
   }
 
-  get hasSeat(): boolean {
-    return this.players.size < RULES.roomSize;
+  /** People in the room, connected or within their grace — everyone but the bots. */
+  get humans(): number {
+    let n = 0;
+    for (const p of this.players.values()) if (!p.bot) n++;
+    return n;
   }
 
-  /** A new player's tank, spawned at once if a spawn point is free. */
+  get hasSeat(): boolean {
+    return this.humans < RULES.roomSize;
+  }
+
+  /** A new player's tank, spawned at once if a spawn point is free; a bot leaves to make room. */
   add(name: string, token: string, peer: Peer): Player {
+    const player = this.seat(name, token, peer, null);
+    this.balance();
+    return player;
+  }
+
+  private seat(name: string, token: string, peer: Peer | null, bot: Memory | null): Player {
     let id = this.nextId;
     while (this.players.has(id)) id = (id % 0xffff) + 1;
     this.nextId = (id % 0xffff) + 1;
@@ -88,6 +126,7 @@ export class Room {
       name,
       token,
       peer,
+      bot,
       queue: [],
       received: 0,
       last: null,
@@ -97,6 +136,30 @@ export class Room {
     };
     this.players.set(id, player);
     return player;
+  }
+
+  /**
+   * Bots in or out until they fill the room to `botsFillTo` tanks — never into a seat a person
+   * could take. The newest bot leaves first. Whether anyone came or went: the roster changed.
+   */
+  private balance(): boolean {
+    const bots = [...this.players.values()].filter((p) => p.bot);
+    const want = Math.max(0, Math.min(this.botsFillTo, RULES.roomSize) - this.humans);
+    for (const gone of bots.slice(want).reverse()) {
+      this.players.delete(gone.id);
+      this.world = leave(this.world, gone.id);
+    }
+    const names = new Set(bots.slice(0, want).map((p) => p.name));
+    let added = 0;
+    for (const [name, skill] of BOTS) {
+      if (bots.length + added >= want) break;
+      if (names.has(name)) continue;
+      const p = this.seat(name, '', null, null);
+      const seed = (this.seed ^ Math.imul(p.id, 0x9e3779b1)) >>> 0;
+      p.bot = createBot(p.id, arenaOf(this.world), seed, skill);
+      added++;
+    }
+    return bots.length !== want;
   }
 
   /** A socket for a player who dropped within the grace: a fresh baseline, a fresh `seq`. */
@@ -133,7 +196,7 @@ export class Room {
   roster(): RosterEntry[] {
     return [...this.players.values()].map((p) => ({
       id: p.id,
-      bot: false,
+      bot: p.bot !== null,
       score: this.world.tanks.find((t) => t.id === p.id)?.score ?? 0,
       name: p.name,
     }));
@@ -150,6 +213,12 @@ export class Room {
 
   /** The command a player's tank runs this tick, and the input it acknowledges. */
   private command(p: Player): Command | null {
+    if (p.bot) {
+      // A bot is handed the view a player in its seat would hold, and answers with an input.
+      const r = decide(view(this.world, p.id, this.lastEvents, 0), p.bot);
+      p.bot = r.memory;
+      return r.input;
+    }
     if (!p.peer) return null;
     const next = p.queue.shift();
     const rtt = p.peer.rttMs();
@@ -175,6 +244,7 @@ export class Room {
     this.world = r.world;
     const events = [...this.pending, ...r.events];
     this.pending = [];
+    this.lastEvents = events;
 
     let rosterChanged = events.some((e) => e.type === 'kill' && e.killer !== e.victim);
     for (const p of [...this.players.values()]) {
@@ -184,6 +254,7 @@ export class Room {
         rosterChanged = true;
       }
     }
+    if (this.balance()) rosterChanged = true;
     if (rosterChanged) this.broadcastRoster();
 
     const views = new Map<number, View>();

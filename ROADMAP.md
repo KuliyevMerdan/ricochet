@@ -24,6 +24,8 @@ symmetric direction table; `protocol`, a binary codec held to hand-written bytes
 invariant, and a tank's own inputs replayed through `stepTank` reproduce the server's tank exactly.
 **S3 landed 2026-10-03** — the server: a room of 12 on real sockets for five minutes, every tick
 within 1.77 ms of its deadline at p99, every client holding exactly the view it was sent.
+**S4 landed 2026-10-03** — bots that play through views and inputs alone, seated by the server to
+fill a room to 6; the bench: a 12-tank tick 0.11 ms at p99, 1.75 KB/s down to the busiest client.
 
 ---
 
@@ -81,7 +83,7 @@ only your own connection.
 | **S1** | `protocol` · `geom` — the binary wire, quantisation, the direction table, the contract and ADRs | S0 | ✅ (landed 2026-10-03) |
 | **S2** | `sim` — the world step: tanks, shells, ricochets, damage, respawn, the arena; pure and headless | S1 | ✅ (landed 2026-10-03) |
 | **S3** | `apps/server` — rooms, the tick loop, input queues, snapshots with interest and deltas, clock sync | S2 | ✅ (landed 2026-10-03) |
-| **S4** | `bots` + `tools/bench` — bots that play through inputs alone; tick cost and bytes per client measured | S2 | ☐ |
+| **S4** | `bots` + `tools/bench` — bots that play through inputs alone; tick cost and bytes per client measured | S2 | ✅ (landed 2026-10-03) |
 | **C0** | `netcode` — socket, clock, prediction and reconciliation, the interpolation buffer | S1, S2, S3 | ☐ |
 | **C1** | The arena on screen — Phaser scene, generated art, camera, minimap, smoothing | C0 | ☐ |
 | **C2** | Feel — three input schemes, own shells predicted, hits and deaths, the scoreboard | C1 | ☐ |
@@ -316,19 +318,39 @@ on other machines, which P0's load tool and P1's live demo are.
 
 _1–2 days. Can run in parallel with S3._
 
-- [ ] `packages/bots`: `decide(snapshot, memory) → input` — steer toward a target or a crate,
-      around walls by a coarse grid path found once per arena; aim with lead and a deliberate error
-      that is the difficulty; bank a shot off a wall when the straight line is blocked (the
-      reflection from `geom`). Sees only its snapshot, acts only by inputs (S0's rule).
-- [ ] The server seats bots to fill a room to 6, as players.
-- [ ] `tools/bench`: rooms of bots stepped headless as fast as they go — the tick's cost at p50 and
-      p99 for 6, 12 and 24 tanks, and the bytes each client would be sent per second, full and
-      delta. Results to `docs/bench/`.
-- [ ] A test that bots kill each other: in 10 minutes of a bot-only room every bot scores and every
-      bot dies — they play, they do not orbit.
+- [x] `packages/bots` (2026-10-03): `decide(view, memory) → { input, memory }`. The bot sees the
+      view a player in its seat would hold and answers with the input a player would send.
+      **Diverged:** it is handed the memory back rather than keeping it, so a bot is as pure and
+      replayable as `sim`. It steers toward the nearest tank it can hurt, a crate when it is down to
+      its last hit point, or a spawn or crate spot to wander to. It paths round the walls on a
+      32-unit grid built once per arena: Dijkstra fields shared between bots, 0.07 ms each, and the
+      furthest cell along the path it can drive straight to. A target in sight it circles rather
+      than rams. It aims where the target will be when the shell arrives, firing tick included,
+      off by a uniform error of `spread` directions: 12, 24 or 40, the difficulty as a number. When
+      the straight line is blocked it banks: it reflects the target in every wall face, aims at the
+      image, and flies the shot with `geom` the way the server will. It keeps only a shot that lands
+      on the leg it was aimed for and passes clear of its own tank. It works loose from a tank it
+      is stuck on. Its randomness is a mulberry32 seed in its memory.
+- [x] The server seats bots to fill a room to 6 (`RICOCHET_BOTS`, default `botsFillTo`): a bot is a
+      player with no socket and no token, flagged in the roster. The newest leaves as a person
+      arrives and one comes back when a person's grace runs out. The lobby seats people by people,
+      not tanks.
+- [x] `tools/bench` (`pnpm bench`): rooms of 6, 12 and 24 bots, five minutes of play each, every
+      tank treated as a connected player. It times the tick (`step`, views, diffs, encodes) and the
+      bots apart, at p50 and p99. It counts the bytes down per client with framing and the roster,
+      delta and whole, at 30 Hz and at 15, deflated alone and in context. Results to
+      [`docs/bench/results.md`](docs/bench/results.md); what was decided from them in
+      [`docs/bench/README.md`](docs/bench/README.md). It fails over budget.
+- [x] `tools/bench/src/bots.test.ts`: in 10 minutes of a bot-only room of 6, every bot scores
+      (27–49 kills each), every bot dies (40–47 times), fewer than a quarter of deaths are a
+      ricochet coming home (23 of 267), and every score is the kill events.
 
 **Done when:** `pnpm bench` reports a 12-tank tick under 1 ms at p99 on a laptop and under
-**6 KB/s down per client** with deltas, and the numbers are pinned in `docs/bench/`.
+**6 KB/s down per client** with deltas, and the numbers are pinned in `docs/bench/`. **Met
+2026-10-03** (one laptop, Apple M4 Pro, Node 24): a 12-tank tick **0.112 ms at p99** (`step` alone
+0.052); 12 bots deciding 0.31 ms at p99; down to a client of 12, **1.75 KB/s** at worst with deltas
+against 4.68 KB/s whole. 24 tanks, twice a room: 0.35 ms and 3.05 KB/s. 15 Hz halves the bytes; a
+frame deflated alone keeps 93 % of its size, so frames stay uncompressed (protocol § 9).
 
 ---
 
@@ -476,7 +498,8 @@ network from the lab, and watch their tank stay under their thumb — in under t
 
 - ~~**Phaser 3 or 4**~~ — **decided at S0: Phaser 4** (4.2.1, the stable release on 2026-10-03), pinned in the catalog.
 - **Snapshot rate** — 30 Hz is the plan; whether 15 Hz with a longer interpolation delay looks the
-  same at half the bytes is measured, not argued. (S4 measures the bytes, C1 decides the look)
+  same is measured, not argued. **The bytes were measured at S4:** 15 Hz is 0.93 KB/s against
+  1.75 at 30, both far under budget, so the bytes do not argue for it. (C1 decides the look)
 - **Tank against tank** — whether pushing is predicted (it is not, in the plan: the own tank stops
   at another as the server says, and the correction is the visible cost). (C0)
 - ~~**The interest radius**~~ — **decided at S2:** a square, `viewHalf` = 880 units each side of the

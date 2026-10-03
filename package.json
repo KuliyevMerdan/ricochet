@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json && turbo run typecheck",
     "test": "turbo run test",
     "test:root": "vitest run",
+    "bench": "turbo run build --filter=@ricochet/bench && node tools/bench/dist/main.js",
     "lint": "eslint . && pnpm run lint:boundaries",
     "lint:boundaries": "depcruise packages apps tools --config .dependency-cruiser.cjs",
     "check": "pnpm run lint && pnpm run build && pnpm run typecheck && pnpm run test && pnpm run test:root && pnpm run format:check",

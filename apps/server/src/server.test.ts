@@ -1,4 +1,4 @@
-import { apply, decodeServer, encodeClient } from '@ricochet/protocol';
+import { RULES, apply, decodeServer, encodeClient } from '@ricochet/protocol';
 import type { ShellAt, View } from '@ricochet/protocol';
 import { afterAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
@@ -22,6 +22,7 @@ const server = createServer({
     port: 0,
     maxRooms: 5,
     pingMs: 250,
+    bots: RULES.botsFillTo,
     logLevel: 'silent',
   },
   logger: false,

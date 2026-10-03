@@ -15,6 +15,8 @@ export interface LobbyOptions {
   /** The global tick that last ran. */
   tick(): number;
   readonly observe?: Observer;
+  /** Bots fill each room to this many tanks; 0 for none. */
+  readonly botsFillTo?: number;
 }
 
 export type Entered =
@@ -47,10 +49,7 @@ export class Lobby {
 
     let room = this.rooms
       .filter((r) => r.hasSeat)
-      .reduce<Room | null>(
-        (best, r) => (!best || r.players.size > best.players.size ? r : best),
-        null,
-      );
+      .reduce<Room | null>((best, r) => (!best || r.humans > best.humans ? r : best), null);
     if (!room) {
       if (this.rooms.length >= this.opts.maxRooms) return { ok: false, code: 'FULL' };
       room = new Room(
@@ -58,6 +57,7 @@ export class Lobby {
         this.opts.seed(),
         this.opts.tick(),
         this.opts.observe ?? null,
+        this.opts.botsFillTo ?? 0,
       );
       this.rooms.push(room);
     }
@@ -84,8 +84,13 @@ export class Lobby {
     }
   }
 
+  /** People in every room — the bots not counted. */
   players(): number {
-    return this.rooms.reduce((n, r) => n + r.players.size, 0);
+    return this.rooms.reduce((n, r) => n + r.humans, 0);
+  }
+
+  bots(): number {
+    return this.rooms.reduce((n, r) => n + r.players.size - r.humans, 0);
   }
 }
 
