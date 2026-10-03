@@ -245,7 +245,7 @@ Events ride in the snapshot of the tick they happened in. Each is a type byte an
 
 | Event | Type | Fields | Sent to |
 | --- | --- | --- | --- |
-| `shot` | `1` | `shell u16`, `seq u32` — your input that fired it | the shooter only — how a predicted shell finds its real one (C2) |
+| `shot` | `1` | `shell u16`, `tank u16` — the shooter, `seq u32` — the input that fired it | the shooter only — how a predicted shell finds its real one (C2) |
 | `hit` | `2` | `shell u16`, `victim u16`, `hp u8` — after the hit | clients that see the victim |
 | `kill` | `3` | `killer u16`, `victim u16`; the same id twice for a tank that shot itself | everyone in the room — the kill feed |
 | `crate` | `4` | `spot u8`, `tank u16` — who picked it up | clients that see the spot |
@@ -273,6 +273,7 @@ part of the contract, not of `sim`, because the bots play by them and may not im
 | --- | --- | --- |
 | `tickHz` | `30` | ticks a second; one snapshot to every client per tick |
 | `arena` | `16384` | the arena's side in eighths — 2,048 units |
+| `viewHalf` | `7040` | a client is sent what lies within this many eighths of its tank on each axis — 880 units (§ 8.3) |
 | `tankRadius` | `192` | 24 units |
 | `tankSpeed` | `59` | eighths a tick along the hull — 221.25 units/s |
 | `hullTurn` | `24` | directions a tick the hull may turn — ≈253°/s |
@@ -298,8 +299,52 @@ part of the contract, not of `sim`, because the bots play by them and may not im
 
 **Driving.** The stick names a direction. The hull turns toward it — or toward its opposite, when
 that is nearer, and then the tank drives in reverse — by at most `hullTurn` a tick, and the tank
-moves `tankSpeed` along the hull whenever the stick is held. The turret is the input's `aim`. A
-tank that would overlap a wall or another tank is stopped against it (S2 pins how).
+moves `tankSpeed` along the hull whenever the stick is held. The turret is the input's `aim`. The
+move is taken along x, then along y, each as far as the tank stays clear of every wall and every
+other live tank: it stops flush against what it meets and slides along a wall it meets at an angle.
+Tanks do not push one another.
+
+**Firing.** A live tank with no shield, no reload left and fewer than `maxShells` in the air fires
+when the trigger is held: a shell is born at its centre, heading along the turret, and flies
+`muzzle` eighths at once and then the shooter's lead (ADR-0002) — able to hit on the way.
+
+**Shells.** A shell flies `shellSpeed` a tick, off its first wall by § 2's reflection and dead on its
+second, or after `shellLife` ticks. It ends in the first live tank it passes within
+`tankRadius + shellRadius` of — **its own tank only once it has bounced**, so a shell never hits the
+barrel it leaves and a ricochet can. A hit costs one hit point; a shielded tank takes the shell and
+no damage. At 0 the tank dies; its killer scores a point, unless it killed itself.
+
+**Respawn.** `respawn` ticks after death, a tank comes back whole and shielded at the free spawn
+point furthest from the nearest live tank, ties drawn from the world's seeded stream; with every
+spawn point taken it waits a tick at a time. A new player spawns the same way, at once.
+
+**Crates.** Every `crateEvery` ticks a crate appears at a free spot, drawn from the stream. A live
+tank below full health whose centre comes within `tankRadius + crateRadius` of it takes it.
+
+### 8.1 A tick
+
+`sim.step` applies these in a fixed order, which is part of the rules: (1) timers — reload, shield
+and respawn count down, and the dead respawn; (2) driving, tank by tank in ascending id, each
+against the others as they stand at that moment; (3) firing, in ascending id; (4) the flight of every
+shell that was in the air before the tick, in ascending id; (5) crates.
+
+### 8.2 The arena
+
+Arena 0, as `ARENA_0` in `packages/protocol` — the walls, spawn points and crate spots are part of
+the contract, because the bots path round the walls and may not import `sim`. Four-fold symmetric
+about the centre, so no spawn is better than another: per quadrant a long bar, a short post, a block
+of cover and a lip, turned four ways about a 128-unit pillar in the middle; the arena's edges are
+four walls outside it. Eight spawn points (the corners, and the middles of the sides), four crate
+spots (one in each quadrant's pocket above its bar). No two walls touch — a shell never meets a
+seam — and every spawn point and crate is reachable from every other by a tank
+(`arena.test.ts`).
+
+### 8.3 The view
+
+What a client is sent is a square around its own tank, `viewHalf` on each side of it: the camera
+shows at most 640 units from its centre on either axis (C1), the camera leads its tank by at most 80
+units toward the aim, and 160 units of margin cover what crosses into view during the interpolation
+delay. A square rather than a circle: the screen is a rectangle, and the test is two comparisons.
 
 ## 9. Deliberately not in v1
 
@@ -322,3 +367,7 @@ tank that would overlap a wall or another tank is stopped against it (S2 pins ho
 | D6 | The rules live in `protocol`, because `bots` play by them and may not import `sim`. | 2026-10-03 |
 | D7 | A name is strict UTF-8, decoded by hand — `TextEncoder` is not in the library a package compiles against — and refuses controls and bidi overrides. | 2026-10-03 |
 | D8 | Reload is 11 ticks (≈367 ms), not the roadmap's 350 ms, which is not a whole number of ticks. | 2026-10-03 |
+| D9 | `shot` names its shooter. Without it, a shell that hit point-blank and died in the tick it was fired leaves the server no way to tell whom the event is for. | 2026-10-03 |
+| D10 | The view is a square, `viewHalf` = 880 units each side (§ 8.3). | 2026-10-03 |
+| D11 | The arena is in the contract (§ 8.2), for the same reason as the rules (D6). | 2026-10-03 |
+| D12 | A shell spares its own tank until it has bounced; a shield absorbs a shell; a self-kill scores nothing; tanks do not push. | 2026-10-03 |

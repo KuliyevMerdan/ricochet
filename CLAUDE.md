@@ -5,7 +5,7 @@ repository.
 
 ## Project status
 
-> ⚠️ **S0 and S1 have landed; no game yet.** **S0 landed 2026-10-03**: the pnpm + Turborepo
+> ⚠️ **S0, S1 and S2 have landed; nothing on screen yet.** **S0 landed 2026-10-03**: the pnpm + Turborepo
 > workspace of ten units, strict TypeScript with no DOM and no Node unless a unit opts in, the
 > dependency graph as dependency-cruiser allow-lists, purity and exactness as ESLint rules — all
 > *proven to fire* against deliberately illegal fixtures — and CI running `pnpm check`. **S1 landed
@@ -13,7 +13,10 @@ repository.
 > direction table built exactly symmetric, circles swept against walls as exact fractions, 10⁶
 > random shots none of which tunnels; `protocol` — a binary codec held to bytes written by hand and
 > to the document's tables, snapshots as deltas between views, shells sent once as starting
-> conditions. **S2**, the world step, is next.
+> conditions. **S2 landed 2026-10-03**: `sim` — the room one tick at a time, pure and exact; 100,000
+> random ticks of 12 tanks hold every invariant, and a tank's own inputs replayed through `stepTank`
+> reproduce the server's tank in every tick no other tank touched. **S3** (the server) and **S4**
+> (bots and the bench) are next, in either order.
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -83,13 +86,13 @@ of it. Enforced by lint since S0 (§ Purity and exactness).
 
 ### Packages
 
-All ten exist since **S0**; two are written. The right-hand column is the block that fills each.
+All ten exist since **S0**; three are written. The right-hand column is the block that fills each.
 
 | Package | Responsibility | Block |
 | --- | --- | --- |
 | `packages/geom` | the world's grid — integers in **eighths** of a unit (`ARENA_EIGHTHS`, `eighths`, `roundHalfAway`); the 1,024-direction table (`COS`, `SIN`, ×2^14), printed by [`golden/directions.py`](packages/geom/golden/directions.py) from one octant and its symmetries, so `reflect` off a face is exact on the index *and* the vector; `step(d, speed)`, `turnToward`, and `nearestDir` — a mouse offset to a direction by cross products, no `atan2`; `circleOverlapsBox` by squared distances; `sweep` — a moving circle against a box grown by its radius, every time a fraction of integers and every comparison a cross-multiplication, returning the first contact and the face it met. Pure and exact | ✅ S1 |
 | `packages/protocol` | the binary wire ([`docs/protocol.md`](docs/protocol.md)): `encodeClient` / `decodeClient`, `encodeServer` / `decodeServer` over `DataView`, little-endian — a read past the end sets a flag instead of throwing, and a frame is refused as a value for truncation, trailing bytes, a reserved bit or a field out of range; `diff(base, next)` and `apply(base, snapshot)` between per-client **views** — tanks by field mask with small `i8` steps, shells once as starting conditions — `apply` refusing a delta not of its base; strict hand-written UTF-8 and `validName`; `RULES`, the game's numbers, here because the bots play by them. Pure | ✅ S1 |
-| `packages/sim` | `step(world, inputs, tick) → { world, events }` at a fixed 1/30 s — tanks, shells and their one ricochet, damage, respawn, crates, scores — quantised every tick; `stepTank` on its own for prediction; `view(world, viewer)` the one door to the wire. Randomness from a seed carried in the world. Returns events; never emits. Pure and exact | S2 |
+| `packages/sim` | the room, one tick at a time: `step(world, commands) → { world, events }` — timers and respawn, driving, firing, flight, crates, in that order ([`docs/protocol.md`](docs/protocol.md) § 8.1); `createWorld`, `join`, `leave`. `stepTank(tank, command, arena, obstacles)` — **the prediction's entry point**, the hull turning or reversing toward the stick and the move taken along x then y as far as it is free; `stepShell` — a shell's flight with no tanks, what a client runs on the shells it holds; `fly` / `flyTick` with tanks, sparing the owner until the bounce. `view(world, viewer, events, ack)` — **the one door to the wire**: a square of `viewHalf`, the viewer's timers, events filtered by § 6. A world is plain data — integers, booleans, arrays — and its randomness a mulberry32 state inside it. Returns events; never emits. Pure and exact | ✅ S2 |
 | `packages/bots` | `decide(snapshot, memory) → input` — a path round the walls, aim with lead and a deliberate error, a bank shot when the straight line is blocked. Sees only a snapshot, acts only by inputs. Pure | S4 |
 | `packages/netcode` | the socket, the handshake, the clock; prediction and reconciliation through `sim.stepTank`; the adaptive interpolation buffer; `frame(now)` — positions for the renderer between ticks. **No DOM**: the socket, timers and clock are handed in, so the browser, the load tool and the tests run the same code | C0 |
 | `packages/renderer` | the arena in Phaser: textures generated at boot, hull and turret, shells, crates, walls, the camera with a lead toward the aim, the minimap, pooled particles. **No protocol** — it draws pictures | C1 |
@@ -187,7 +190,7 @@ package — and `netcode`, which must run in the browser, in Node and in a test 
 | Golden | every message written by hand beside its bytes, also written by hand from the document — both directions held to them, every truncation and a trailing byte refused, no client frame taken for a server one; 26 frames one field from valid, each refused with its reason; the direction table rerun from its script (`tests/golden-fresh.test.ts`); the document's message, event, error and rules tables held to the code (`tests/protocol-doc.test.ts`) | ✅ S1 |
 | Geometry | the table exactly symmetric, on the unit circle within rounding, turning steadily; a mirrored direction's step the mirrored step at every speed to 320; 10⁶ random shots, radii to 8 units, speeds to twice a shell's, walls from 16 units thick — each sweep meeting the wall on its grown boundary, no later than a 64-point sampling of the move | ✅ S1 |
 | Codec | 100,000 random messages each way decode to themselves; 20,000 ticks of a moving world through `diff`, the bytes and `apply` arrive as the server's view, under 200 bytes a tick | ✅ S1 |
-| World | every rule on staged worlds; the same inputs give the same world byte for byte in Node and happy-dom; 100,000 random ticks of 12 tanks with no tank in a wall, no shell through one, scores and hit points explained by the events | S2 |
+| World | every rule on staged worlds (23); arena 0's edges, walls apart, spawns and crates clear and reachable; 100,000 random ticks of 12 tanks with players coming and going — no tank in a wall or another tank, no shell in a wall or off the arena, hit points and scores what the events say, every tenth tick every view across the wire; 0 mismatches in 200,000 ticks of `stepTank` replays where no other tank came near; the same seed the same world, and 5,000 ticks pinned to a hash | ✅ S2 |
 | Server | 12 headless clients over a real socket for 5 minutes — every tick on its deadline, every view a subset of the world, every client's snapshots reproducing its view | S3 |
 | Netcode | a headless client at 150 ± 40 ms for 10 minutes against the real `sim`: prediction equal to the server's after every reconciliation where no other tank touched it | C0 |
 | Browser | 60 fps at 12 tanks and 36 shells on a throttled phone profile, flat memory, an idle hidden tab drawing nothing; no predicted shell shown hitting a tank the server says it missed | C1 · C2 |
@@ -229,10 +232,12 @@ writing — the questions [`ROADMAP.md`](ROADMAP.md) leaves to a block:
 
 - **Snapshot rate.** 30 Hz is the plan; whether 15 Hz with a longer interpolation delay looks the
   same at half the bytes is measured, not argued. S4 measures the bytes, C1 decides the look.
+- **Cross-engine determinism, shown.** `sim` is exact by construction and lint, and the soak pins a
+  5,000-tick run to a hash — but only in V8. C1 replays that run in Chromium, Firefox and WebKit
+  (Playwright) and requires the same hash; until then "the same in every engine" is argued, not
+  measured.
 - **Tank against tank.** The plan does not predict pushing: the own tank stops at another where the
   server says, and the correction is the visible cost. C0 confirms or changes it.
-- **The interest radius.** The screen's half-diagonal at the widest aspect allowed, plus the margin
-  a shell crosses in the interpolation delay. S2.
 - **Gamepad on iOS Safari.** Supported, or said not to be. C2.
 - **Toolchain majors held back.** TypeScript 7, Vitest 5, ESLint 10 and dependency-cruiser 18 were
   out at S0; the workspace pins the majors the three sibling projects run on (TypeScript 5,

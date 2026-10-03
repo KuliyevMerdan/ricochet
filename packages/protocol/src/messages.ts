@@ -120,7 +120,7 @@ export interface Shell {
 }
 
 export type GameEvent =
-  | { readonly type: 'shot'; readonly shell: number; readonly seq: number }
+  | { readonly type: 'shot'; readonly shell: number; readonly tank: number; readonly seq: number }
   | { readonly type: 'hit'; readonly shell: number; readonly victim: number; readonly hp: number }
   | { readonly type: 'kill'; readonly killer: number; readonly victim: number }
   | { readonly type: 'crate'; readonly spot: number; readonly tank: number }

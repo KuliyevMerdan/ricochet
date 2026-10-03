@@ -195,7 +195,7 @@ function snapshot(w: Writer, s: Snapshot): void {
     w.u8(EVENT_TYPES[e.type]);
     switch (e.type) {
       case 'shot':
-        w.u16(e.shell).u32(e.seq);
+        w.u16(e.shell).u16(e.tank).u32(e.seq);
         break;
       case 'hit':
         w.u16(e.shell).u16(e.victim).u8(e.hp);
@@ -422,7 +422,7 @@ function readEvent(r: Reader): GameEvent {
   const type = r.u8();
   switch (type) {
     case EVENT_TYPES.shot:
-      return { type: 'shot', shell: r.u16(), seq: r.u32() };
+      return { type: 'shot', shell: r.u16(), tank: r.u16(), seq: r.u32() };
     case EVENT_TYPES.hit: {
       const e = { type: 'hit' as const, shell: r.u16(), victim: r.u16(), hp: r.u8() };
       need(e.hp <= RULES.hitPoints, 'hit points past the rules');

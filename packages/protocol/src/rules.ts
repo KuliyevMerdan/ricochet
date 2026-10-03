@@ -10,6 +10,12 @@ export const RULES = {
   tickHz: 30,
   /** The arena's side. */
   arena: ARENA_EIGHTHS,
+  /**
+   * A client is sent what lies within this many eighths of its tank on each axis — a square 1,760
+   * units across: the camera's 1,280 units, its 80-unit lead toward the aim on either side, and 160
+   * units of margin for what crosses into view during the interpolation delay (§ 5).
+   */
+  viewHalf: 7040,
 
   /** 24 units. */
   tankRadius: 192,

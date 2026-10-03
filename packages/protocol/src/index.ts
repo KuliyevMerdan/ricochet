@@ -39,5 +39,7 @@ export { decodeClient, decodeServer, encodeClient, encodeServer } from './codec.
 export { apply, diff } from './view.js';
 export type { ShellAt, View } from './view.js';
 export { RULES } from './rules.js';
+export { ARENAS, ARENA_0 } from './arena.js';
+export type { Arena, Point } from './arena.js';
 export type { Result } from './result.js';
 export { decodeUtf8, encodeUtf8 } from './utf8.js';

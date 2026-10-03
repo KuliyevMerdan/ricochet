@@ -20,6 +20,8 @@ server's authority, the client's prediction, the shells that are not rewound, th
 graph, purity and exactness enforced and proven against illegal fixtures (57 root tests), CI.
 **S1 landed 2026-10-03** — the wire contract and three ADRs; `geom`, exact integer geometry and a
 symmetric direction table; `protocol`, a binary codec held to hand-written bytes and to the document.
+**S2 landed 2026-10-03** — `sim`, the room one tick at a time: 100,000 random ticks hold every
+invariant, and a tank's own inputs replayed through `stepTank` reproduce the server's tank exactly.
 
 ---
 
@@ -75,7 +77,7 @@ only your own connection.
 | --- | --- | --- | --- |
 | **S0** | Workspace, strict TS, boundary lint, purity tests, CI, `CLAUDE.md` | — | ✅ (landed 2026-10-03) |
 | **S1** | `protocol` · `geom` — the binary wire, quantisation, the direction table, the contract and ADRs | S0 | ✅ (landed 2026-10-03) |
-| **S2** | `sim` — the world step: tanks, shells, ricochets, damage, respawn, the arena; pure and headless | S1 | ☐ |
+| **S2** | `sim` — the world step: tanks, shells, ricochets, damage, respawn, the arena; pure and headless | S1 | ✅ (landed 2026-10-03) |
 | **S3** | `apps/server` — rooms, the tick loop, input queues, snapshots with interest and deltas, clock sync | S2 | ☐ |
 | **S4** | `bots` + `tools/bench` — bots that play through inputs alone; tick cost and bytes per client measured | S2 | ☐ |
 | **C0** | `netcode` — socket, clock, prediction and reconciliation, the interpolation buffer | S1, S2, S3 | ☐ |
@@ -204,30 +206,52 @@ removed, and entries before the move accepted — each turn the suite red.
 
 _3 days. The part reviewers actually read._
 
-- [ ] `packages/sim`: `step(world, inputs, tick) → { world, events }` at a fixed 1/30 s. Tanks
-      (hull turn rate, drive, collision with walls and with each other), shells (swept, one
-      ricochet, owner and life), damage, death, respawn with the spawn shield, crates, scores. **The
-      engine returns events; it never emits.** Randomness (spawn order, crate spot) only from a
-      seeded stream carried in the world.
-- [ ] **The world is quantised at the end of every tick** to the wire's precision — so a client
-      that rewinds to a snapshot and replays its inputs is running the server's own computation,
-      not an approximation of it.
-- [ ] `stepTank(tank, input, walls)` exported on its own — the prediction's entry point, and the
-      same function `step` calls for every tank.
-- [ ] `view(world, viewer) → Snapshot` — the one door to the wire: the entities within the viewer's
-      interest radius plus a margin, everyone's score, nothing else.
-- [ ] The arena as data — in `protocol` beside `RULES`, since the bots path round its walls and may
-      not import `sim` (protocol D6): walls as boxes, spawn points, crate spots; a test that every spawn point
-      sees no wall inside a tank's radius and every crate is reachable.
-- [ ] Tests: every rule of § Rules on staged worlds · determinism: the same inputs from the same
-      seed give the same world, byte for byte, in Node and in happy-dom · 100,000 ticks of 12
-      tanks on random inputs: no tank inside a wall or another tank, no shell through a wall,
-      hit points and scores conserved against the events · `fold`: the events of a tick explain
-      every change of score and hit points in it.
+- [x] `packages/sim`: `step(world, commands) → { world, events }` at a fixed 1/30 s (2026-10-03).
+      Tanks — the hull turning toward the stick or reversing, the move taken along x then y as far
+      as it is free, so a tank stops flush and slides along a wall; shells — born at the centre,
+      flown `muzzle` and the shooter's `lead` at once, swept against every wall, off the first and
+      dead on the second, sparing their own tank until they have bounced; damage, the shield
+      absorbing, death, the score, respawn at the free spawn point furthest from the living; crates.
+      **The engine returns events; it never emits.** Spawn ties and crate spots are drawn from a
+      mulberry32 state carried in the world. The order of a tick is a rule, written in
+      [`docs/protocol.md`](docs/protocol.md) § 8.1. **Diverged:** no `tick` argument — the world
+      carries its tick; `join` and `leave` beside `step`; `shot` names its shooter (protocol D9),
+      found when a point-blank shell died in the tick it was fired and its event had no owner left.
+- [x] **The world is integers at every step** — eighths and directions throughout (protocol D1), so
+      there is nothing left to quantise. A wall contact is snapped exactly onto the grown face as
+      well; a mutant without the snap survives the soak, because a contact time computed as an
+      exact fraction already lands on the face — the snap is a second guard, not the only one.
+- [x] `stepTank(tank, command, arena, obstacles = [])` exported on its own — the prediction's entry
+      point, and the function `step` calls for every tank, which passes the other live tanks as
+      obstacles; `stepShell(shell, arena)` beside it, the flight a client runs on the shells it
+      holds (protocol § 5.3).
+- [x] `view(world, viewer, events, ack) → View` — the one door to the wire: the tanks and shells
+      within `viewHalf` of the viewer on both axes (a square, protocol D10, 880 units each side),
+      its own timers, the crates, and the tick's events filtered by protocol § 6.
+- [x] The arena as data — `ARENA_0` in `protocol` beside `RULES`, since the bots path round its
+      walls and may not import `sim` (protocol D11): four-fold symmetric, 21 walls with the edges,
+      eight spawn points, four crate spots. `arena.test.ts`: the edges close it, no two walls
+      touch (no seam for a shell to find), every spawn and crate clear, and every one reachable
+      from every other on an 8-unit grid of tank centres.
+- [x] Tests: every rule on staged worlds (`rules.test.ts`, 23) · 100,000 ticks of 12 tanks on random
+      inputs, players leaving and arriving, with every invariant checked every tick
+      (`soak.test.ts`) · the events explain every change of hit points and score, every tick · every
+      tenth tick, every player's view through `diff`, the bytes and `apply`. **Diverged:**
+      determinism is a pinned hash of 5,000 ticks rather than a rerun in happy-dom — happy-dom runs
+      in V8 like Node and would prove nothing about another engine. C1 replays the pinned run in
+      Chromium, Firefox and WebKit through Playwright, which does.
 
 **Done when:** 100,000 random ticks hold every invariant, and replaying any tank's inputs through
 `stepTank` from any of its snapshots reproduces the server's tank exactly whenever no other tank
-touched it.
+touched it. **Met 2026-10-03** (`soak.test.ts`, ≈8 s): 100,000 ticks with no tank in a wall or
+another tank, no shell inside a wall or off the arena, no tank over `maxShells`, hit points and
+scores equal to what the events say — over 1,000 kills, 10,000 bounces and 50 crates, so it was a
+game — and over 100,000 views carried across the wire. 30,000 ticks of predictions restarted from
+the server every 10 ticks and replayed through `stepTank` with no obstacles: **0 mismatches** in
+over 200,000 replayed ticks. "No other tank touched it" is taken conservatively — none within two
+radii and three ticks' driving — after a first, exact reconstruction of the step's order missed the
+tanks that respawned or died within the tick and reported 13 false mismatches. A mutant that drives
+every tank with no obstacles fails the soak at tick 122.
 
 ## Block S3 — The server
 
@@ -425,6 +449,6 @@ network from the lab, and watch their tank stay under their thumb — in under t
   same at half the bytes is measured, not argued. (S4 measures the bytes, C1 decides the look)
 - **Tank against tank** — whether pushing is predicted (it is not, in the plan: the own tank stops
   at another as the server says, and the correction is the visible cost). (C0)
-- **The interest radius** — the screen's half-diagonal at the widest aspect allowed, plus a margin a
-  shell crosses in the interpolation delay. (S2)
+- ~~**The interest radius**~~ — **decided at S2:** a square, `viewHalf` = 880 units each side of the
+  tank (protocol § 8.3).
 - **Gamepad on iOS Safari** — supported or said not to be. (C2)

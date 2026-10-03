@@ -36,7 +36,7 @@ const dir = () => int(0, 1023);
 function event(): GameEvent {
   switch (int(0, 4)) {
     case 0:
-      return { type: 'shot', shell: int(0, 0xffff), seq: int(1, 0xffffffff) };
+      return { type: 'shot', shell: int(0, 0xffff), tank: int(0, 0xffff), seq: int(1, 0xffffffff) };
     case 1:
       return { type: 'hit', shell: int(0, 0xffff), victim: int(0, 0xffff), hp: int(0, 3) };
     case 2:

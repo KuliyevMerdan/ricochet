@@ -73,7 +73,7 @@ export const SERVER_GOLDEN: ReadonlyArray<readonly [string, ServerMessage, strin
         added: [{ id: 10, owner: 1, x: 8448, y: 4096, dir: 768, bounced: true, age: 2 }],
       },
       events: [
-        { type: 'shot', shell: 10, seq: 5 },
+        { type: 'shot', shell: 10, tank: 1, seq: 5 },
         { type: 'kill', killer: 1, victim: 2 },
       ],
     },
@@ -83,7 +83,7 @@ export const SERVER_GOLDEN: ReadonlyArray<readonly [string, ServerMessage, strin
       '02 0100 05 0020 0010 0001bc  0200 02 fd 3b',
       '01 0900',
       '01 0a00 0100 0021 0010 0007 02',
-      '02 01 0a00 05000000  03 0100 0200',
+      '02 01 0a00 0100 05000000  03 0100 0200',
     ].join(' '),
   ],
   [
