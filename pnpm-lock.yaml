@@ -20,6 +20,9 @@ importers:
       '@eslint/js':
         specifier: ^9
         version: 9.39.5
+      '@ricochet/protocol':
+        specifier: workspace:*
+        version: link:packages/protocol
       '@types/node':
         specifier: ^20
         version: 20.19.43

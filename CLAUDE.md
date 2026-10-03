@@ -5,15 +5,19 @@ repository.
 
 ## Project status
 
-> ⚠️ **S0 has landed; no game yet.** **S0 landed 2026-10-03**: the pnpm + Turborepo workspace of ten
-> empty units, strict TypeScript with no DOM and no Node unless a unit opts in, the dependency graph
-> as dependency-cruiser allow-lists, purity and exactness as ESLint rules — all *proven to fire*
-> against deliberately illegal fixtures — and CI running `pnpm check`. **S1**, the contracts, is
-> next.
+> ⚠️ **S0 and S1 have landed; no game yet.** **S0 landed 2026-10-03**: the pnpm + Turborepo
+> workspace of ten units, strict TypeScript with no DOM and no Node unless a unit opts in, the
+> dependency graph as dependency-cruiser allow-lists, purity and exactness as ESLint rules — all
+> *proven to fire* against deliberately illegal fixtures — and CI running `pnpm check`. **S1 landed
+> 2026-10-03**: the wire contract and three ADRs; `geom` — the world as integers in eighths, a
+> direction table built exactly symmetric, circles swept against walls as exact fractions, 10⁶
+> random shots none of which tunnels; `protocol` — a binary codec held to bytes written by hand and
+> to the document's tables, snapshots as deltas between views, shells sent once as starting
+> conditions. **S2**, the world step, is next.
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
-> `docs/protocol.md` (the wire contract, written in S1) and `docs/adr/` (the decisions everything
-> else is downstream of, written in S1).
+> [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
+> decisions everything else is downstream of).
 >
 > Below **Project description**, a section written in the present tense describes code that exists;
 > one that names a block (`S1`, `C0`…) describes the shape the code **must take** when that block
@@ -35,7 +39,7 @@ A **real-time multiplayer tank arena in the browser, .io style**. Open the link,
 drive: top-down and twin-stick — the hull goes where you steer, the turret where you aim — and
 every shell bounces off a wall once. Up to 12 tanks a room, bots filling it to 6. Node + TypeScript
 server, Phaser client, one WebSocket carrying a binary protocol. The game's numbers are in
-[`ROADMAP.md`](ROADMAP.md) § The game, in one screen, and become `docs/protocol.md` § Rules in S1.
+[`docs/protocol.md`](docs/protocol.md) § 8 Rules, and in code as `protocol.RULES`.
 
 **Target role:** HTML5 game client developer on a multiplayer title. This is the fourth portfolio
 project and the first outside iGaming, and it exists for the axis the other three do not cover:
@@ -48,9 +52,8 @@ No money of any kind — this is not a casino game.
 
 ### The decisions everything hangs on
 
-Each becomes an ADR in **S1**.
-
-1. **The server is the only authority** (ADR-0001). It steps one world at 30 Hz from everyone's
+1. **The server is the only authority**
+   ([ADR-0001](docs/adr/ADR-0001-server-authority-and-prediction.md)). It steps one world at 30 Hz from everyone's
    inputs and sends each client a snapshot of what that client may see. A client sends inputs — a
    direction, an aim, buttons — never a position.
 2. **Your own tank is predicted** (ADR-0001). The client runs the same `sim` on its own inputs at
@@ -58,12 +61,15 @@ Each becomes an ADR in **S1**.
    tank and replays them. A visible correction is smoothed away as a decaying offset, never snapped.
 3. **Everyone else is interpolated** ~100 ms in the past, between two snapshots that both exist. The
    delay adapts to the link's jitter.
-4. **Shells are fast-forwarded, not targets rewound** (ADR-0002). A shell fired by your input starts
+4. **Shells are fast-forwarded, not targets rewound**
+   ([ADR-0002](docs/adr/ADR-0002-shells-fast-forwarded.md)). A shell fired by your input starts
    on the server moved forward by your half round trip, capped at 100 ms — where your prediction
    drew it. Hits are decided only on the server, at its own present.
-5. **The wire is bytes** (ADR-0003 for WebSocket over WebTransport). Positions quantised to ⅛ unit,
-   aims to 1/1,024 of a turn, snapshots as deltas against the last one the client acknowledged, and
-   each client sent only what lies within its view.
+5. **The wire is bytes** ([ADR-0003](docs/adr/ADR-0003-websocket.md) for a WebSocket, and what TCP
+   lets the protocol drop). The world is integers — eighths of a unit, 1/1,024ths of a turn — so the
+   wire carries it at its own resolution; snapshots are deltas against the last one sent on the
+   socket; a shell is sent once, as a starting condition the client flies on with `sim`; and each
+   client is sent only what lies within its view ([`docs/protocol.md`](docs/protocol.md)).
 
 ### The invariant that makes prediction exact
 
@@ -77,12 +83,12 @@ of it. Enforced by lint since S0 (§ Purity and exactness).
 
 ### Packages
 
-All ten exist since **S0**, empty. The right-hand column is the block that fills each.
+All ten exist since **S0**; two are written. The right-hand column is the block that fills each.
 
 | Package | Responsibility | Block |
 | --- | --- | --- |
-| `packages/geom` | vectors; a circle against an axis-aligned box, and **swept** against one (a shell at 20 units a tick must not tunnel a 16-unit wall); reflection off a face; the 1,024-direction table, generated by a script and committed as integers; the quantisation the codec and `sim` share. Pure and exact | S1 |
-| `packages/protocol` | the binary wire: one encoder and one decoder per message over `DataView`, a version byte, bounds-checked reads that refuse a short or overlong buffer as a value; delta encoding of an entity list against a baseline. Held to `docs/protocol.md` by a test. Pure | S1 |
+| `packages/geom` | the world's grid — integers in **eighths** of a unit (`ARENA_EIGHTHS`, `eighths`, `roundHalfAway`); the 1,024-direction table (`COS`, `SIN`, ×2^14), printed by [`golden/directions.py`](packages/geom/golden/directions.py) from one octant and its symmetries, so `reflect` off a face is exact on the index *and* the vector; `step(d, speed)`, `turnToward`, and `nearestDir` — a mouse offset to a direction by cross products, no `atan2`; `circleOverlapsBox` by squared distances; `sweep` — a moving circle against a box grown by its radius, every time a fraction of integers and every comparison a cross-multiplication, returning the first contact and the face it met. Pure and exact | ✅ S1 |
+| `packages/protocol` | the binary wire ([`docs/protocol.md`](docs/protocol.md)): `encodeClient` / `decodeClient`, `encodeServer` / `decodeServer` over `DataView`, little-endian — a read past the end sets a flag instead of throwing, and a frame is refused as a value for truncation, trailing bytes, a reserved bit or a field out of range; `diff(base, next)` and `apply(base, snapshot)` between per-client **views** — tanks by field mask with small `i8` steps, shells once as starting conditions — `apply` refusing a delta not of its base; strict hand-written UTF-8 and `validName`; `RULES`, the game's numbers, here because the bots play by them. Pure | ✅ S1 |
 | `packages/sim` | `step(world, inputs, tick) → { world, events }` at a fixed 1/30 s — tanks, shells and their one ricochet, damage, respawn, crates, scores — quantised every tick; `stepTank` on its own for prediction; `view(world, viewer)` the one door to the wire. Randomness from a seed carried in the world. Returns events; never emits. Pure and exact | S2 |
 | `packages/bots` | `decide(snapshot, memory) → input` — a path round the walls, aim with lead and a deliberate error, a bank shot when the straight line is blocked. Sees only a snapshot, acts only by inputs. Pure | S4 |
 | `packages/netcode` | the socket, the handshake, the clock; prediction and reconciliation through `sim.stepTank`; the adaptive interpolation buffer; `frame(now)` — positions for the renderer between ticks. **No DOM**: the socket, timers and clock are handed in, so the browser, the load tool and the tests run the same code | C0 |
@@ -178,8 +184,9 @@ package — and `netcode`, which must run in the browser, in Node and in a test 
 | Layer | What it proves | Block |
 | --- | --- | --- |
 | Rules | every dependency rule rejects its illegal fixture by name and accepts the legal allow-lists; purity in all four pure packages; exactness in `geom` and `sim` and not in `protocol`; the `any` / `!` / `as` bans — 57 root tests | ✅ S0 |
-| Golden | every message's bytes against a committed fixture; the direction table against its generator | S1 |
-| Geometry | a swept shell never passes a wall in 10⁶ random shots at up to twice the pinned speed | S1 |
+| Golden | every message written by hand beside its bytes, also written by hand from the document — both directions held to them, every truncation and a trailing byte refused, no client frame taken for a server one; 26 frames one field from valid, each refused with its reason; the direction table rerun from its script (`tests/golden-fresh.test.ts`); the document's message, event, error and rules tables held to the code (`tests/protocol-doc.test.ts`) | ✅ S1 |
+| Geometry | the table exactly symmetric, on the unit circle within rounding, turning steadily; a mirrored direction's step the mirrored step at every speed to 320; 10⁶ random shots, radii to 8 units, speeds to twice a shell's, walls from 16 units thick — each sweep meeting the wall on its grown boundary, no later than a 64-point sampling of the move | ✅ S1 |
+| Codec | 100,000 random messages each way decode to themselves; 20,000 ticks of a moving world through `diff`, the bytes and `apply` arrive as the server's view, under 200 bytes a tick | ✅ S1 |
 | World | every rule on staged worlds; the same inputs give the same world byte for byte in Node and happy-dom; 100,000 random ticks of 12 tanks with no tank in a wall, no shell through one, scores and hit points explained by the events | S2 |
 | Server | 12 headless clients over a real socket for 5 minutes — every tick on its deadline, every view a subset of the world, every client's snapshots reproducing its view | S3 |
 | Netcode | a headless client at 150 ± 40 ms for 10 minutes against the real `sim`: prediction equal to the server's after every reconciliation where no other tank touched it | C0 |
@@ -204,7 +211,7 @@ pnpm check
 | `pnpm build` | `tsc` to `dist/` per unit, in dependency order (Turborepo) |
 | `pnpm typecheck` | the root suites' tsconfig, then every unit's |
 | `pnpm test` | each unit's own `src/**/*.test.ts` (`config/vitest.package.ts`) |
-| `pnpm test:root` | `tests/` — the rules proven against `config/fixtures/` |
+| `pnpm test:root` | `tests/` — the rules proven against `config/fixtures/`, the direction table held to its generator (needs `python3`, standard library only), and the protocol document held to the code |
 | `pnpm format` | Prettier. Markdown is excluded: the canon is hand-wrapped |
 
 Units resolve each other through their built `dist/` and package `exports`, ordered by Turborepo's

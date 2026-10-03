@@ -144,7 +144,9 @@ export default tseslint.config(
   {
     // A later `no-restricted-syntax` replaces an earlier one for the same file, so the exact
     // packages restate the purity selectors and add theirs.
+    // Tests are exempt: an oracle may compute with `Math.cos` what the code under test must not.
     files: [`**/packages/{${EXACT_PACKAGES.join(',')}}/**/*.ts`],
+    ignores: ['**/*.test.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',

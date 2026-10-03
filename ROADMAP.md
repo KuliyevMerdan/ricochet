@@ -18,6 +18,8 @@ server's authority, the client's prediction, the shells that are not rewound, th
 
 **S0 landed 2026-10-03** — the workspace of ten empty units, strict TypeScript, the dependency
 graph, purity and exactness enforced and proven against illegal fixtures (57 root tests), CI.
+**S1 landed 2026-10-03** — the wire contract and three ADRs; `geom`, exact integer geometry and a
+symmetric direction table; `protocol`, a binary codec held to hand-written bytes and to the document.
 
 ---
 
@@ -28,7 +30,8 @@ graph, purity and exactness enforced and proven against illegal fixtures (57 roo
   people arrive, so the demo is never empty. Join at any moment; there is no lobby and no round to
   wait for.
 - **A tank.** 3 hit points. The hull turns toward the stick at a limited rate and drives at 220
-  units/s; the turret aims independently. One shell per 350 ms, at most 3 of yours in the air.
+  units/s; the turret aims independently. One shell per 11 ticks (≈367 ms), at most 3 of yours in
+  the air.
 - **A shell.** 600 units/s, lives 1.6 s, **bounces off a wall once**, and dies on the second wall or
   on any tank — your own included. Bank shots around cover are the skill the game rewards.
 - **Death and back.** A kill is a point; the room's top five sit in a corner. Respawn after 3 s at
@@ -57,7 +60,7 @@ That is the problem this repository exists to solve, in the industry's standard 
    server where your prediction drew it, moved forward by your half round trip (capped at 100 ms).
    Hits are decided only on the server, at its own present.
 5. **The wire is bytes, not JSON.** Positions are quantised to ⅛ unit, aims to 1/1,024 of a turn;
-   snapshots are deltas against the last one the client acknowledged; each client is sent only what
+   snapshots are deltas against the last one sent on the socket; each client is sent only what
    lies within its view.
 
 And the client makes all of this **visible**: a ghost of the server's truth over your own predicted
@@ -71,7 +74,7 @@ only your own connection.
 | Block | Delivers | Gates on | Status |
 | --- | --- | --- | --- |
 | **S0** | Workspace, strict TS, boundary lint, purity tests, CI, `CLAUDE.md` | — | ✅ (landed 2026-10-03) |
-| **S1** | `protocol` · `geom` — the binary wire, quantisation, the direction table, the contract and ADRs | S0 | ☐ |
+| **S1** | `protocol` · `geom` — the binary wire, quantisation, the direction table, the contract and ADRs | S0 | ✅ (landed 2026-10-03) |
 | **S2** | `sim` — the world step: tanks, shells, ricochets, damage, respawn, the arena; pure and headless | S1 | ☐ |
 | **S3** | `apps/server` — rooms, the tick loop, input queues, snapshots with interest and deltas, clock sync | S2 | ☐ |
 | **S4** | `bots` + `tools/bench` — bots that play through inputs alone; tick cost and bytes per client measured | S2 | ☐ |
@@ -147,33 +150,55 @@ built, `lint:boundaries` still reports both, and `Math.sin` in `packages/sim/src
 
 _2 days. Write this before anything moves on screen. Everything is downstream of it._
 
-- [ ] **The wire contract is pinned** in [`docs/protocol.md`](docs/protocol.md): the handshake
-      (`hello` with a name and an optional resume token → `welcome` with the room, your entity,
-      the rules, the server tick), client → server `input` and `ping`, server → client `snapshot`,
-      `event` and `pong`; every field's bytes, the quantisation, the delta rule, the tick and
-      snapshot rates, the error taxonomy, and § Rules — every number of "The game, in one screen".
-- [ ] **The load-bearing decisions are ADRs** —
-      ADR-0001 (the server is the authority; your tank is predicted, the rest interpolated),
-      ADR-0002 (shells fast-forwarded by the shooter's half round trip, not targets rewound — and
-      why that is right for slow, visible projectiles and wrong for a hitscan rifle),
-      ADR-0003 (WebSocket and its head-of-line blocking, over WebTransport or WebRTC data channels —
-      what the choice costs, and where it shows in the lab).
-- [ ] `packages/geom`: vectors, circles against axis-aligned boxes, a **swept** circle against a box
-      (a shell at 20 units a tick must not tunnel through a 16-unit wall), reflection off an
-      axis-aligned face. **The direction table**: `cos` and `sin` for 1,024 directions generated
-      once by a script, committed as integers, and checked against the script by a test — so aim is
-      a table lookup, identical in every engine. Quantisation helpers shared by the codec and `sim`.
-- [ ] `packages/protocol`: a hand-written binary codec over `DataView` — one encoder and one decoder
-      per message, a version byte, bounds-checked reads that refuse a short or overlong buffer as a
-      value, never a throw. Delta encoding of an entity list against a baseline (changed fields by
-      bitmask; entities entering and leaving the view). `tests/protocol-doc.test.ts` holds the
-      document's message and field tables to the codec.
-- [ ] Golden test: a hand-written fixture of every message, encoded to bytes committed beside it;
-      decode(encode(x)) = x for 100,000 random messages; every truncation of every fixture refused.
+- [x] **The wire contract is pinned** in [`docs/protocol.md`](docs/protocol.md) (2026-10-03): the
+      handshake (`hello` with a name and an optional resume token → `welcome` with your entity, the
+      token, the tick and the arena), client → server `input` and `ping`, server → client
+      `snapshot`, `roster`, `pong` and `error`; every field's bytes, the units, the delta rule, the
+      events, the error taxonomy, and § 8 Rules — every number of "The game, in one screen".
+      **Diverged:** events ride inside the snapshot of their tick, not in a message of their own;
+      names and scores are a `roster` sent whole when they change.
+- [x] **The load-bearing decisions are ADRs** (2026-10-03) —
+      [ADR-0001](docs/adr/ADR-0001-server-authority-and-prediction.md) (the server is the
+      authority; your tank is predicted, the rest interpolated),
+      [ADR-0002](docs/adr/ADR-0002-shells-fast-forwarded.md) (shells fast-forwarded by the shooter's
+      half round trip, not targets rewound — right for slow, visible projectiles, wrong for a
+      hitscan rifle), [ADR-0003](docs/adr/ADR-0003-websocket.md) (WebSocket and its head-of-line
+      blocking, over WebTransport or WebRTC data channels — and what the protocol drops because of
+      it).
+- [x] `packages/geom`: circles against axis-aligned boxes, a **swept** circle against a box, exact
+      as fractions of integers and compared by cross-multiplication; reflection off a face as an
+      operation on the direction's index. **The direction table**:
+      [`golden/directions.py`](packages/geom/golden/directions.py) computes the first octant and
+      fills the rest by symmetry, so the table is *exactly* symmetric and a reflected velocity is
+      the old one with a component negated, to the bit; `tests/golden-fresh.test.ts` reruns it.
+      `nearestDir` turns a mouse offset into a direction by cross products, no `atan2`.
+      **Diverged:** the world is integers in eighths of a unit (D1) — the "quantisation helpers"
+      became the world's own grid, and nothing is ever rounded to the wire.
+- [x] `packages/protocol`: a hand-written binary codec over `DataView`, little-endian, one encoder
+      and one decoder per side; a read past the end sets a flag rather than throwing, and a frame
+      is refused as a value for truncation, trailing bytes, a reserved bit or an out-of-range field.
+      `diff(base, next)` and `apply(base, snapshot)` for views: tanks by field mask, a position as an
+      `i8` step when small; shells as starting conditions, sent once (D5); `apply` refuses a delta
+      that is not of its base. Strict UTF-8 by hand for names, and `validName` (no controls, no
+      bidi overrides). `RULES` — the game's numbers — live here, because the bots play by them
+      (D6). `tests/protocol-doc.test.ts` holds § 4's messages, § 6's events, § 7's errors and
+      § 8's rules to the code. **Diverged:** no snapshot acknowledgements — over TCP the last frame
+      *sent* on a socket is the baseline (D4); `ack` acknowledges inputs only.
+- [x] Golden test: every message written by hand beside its bytes — also written by hand, field by
+      field from the document, never printed by the encoder; both directions held to them; every
+      truncation of every fixture refused as `truncated`, a trailing byte as `trailing bytes`, and
+      no client frame taken for a server one or the other way round. 26 more frames, each one field
+      away from a valid one, refused with their reason.
 
 **Done when:** every message round-trips at its pinned size, the direction table matches its
 generator, and a swept shell never passes a wall in 10⁶ random shots at every speed up to twice the
-pinned one.
+pinned one. **Met 2026-10-03:** 100,000 random messages each way decode to themselves; 20,000 ticks
+of a moving world — tanks driving, respawning and leaving, shells fired and landing — go through
+`diff`, the bytes and `apply` and arrive as the server's view, at under 200 bytes a tick; the table
+equals its script's output; and 10⁶ random shots at radii up to 8 units and speeds up to 320 eighths
+a tick, against walls from 16 units thick, each meet the wall exactly on its grown boundary and no
+later than a 64-point sampling of the move does. Two mutants of `sweep` — the slabs' overlap check
+removed, and entries before the move accepted — each turn the suite red.
 
 ## Block S2 — The world step
 
@@ -191,7 +216,8 @@ _3 days. The part reviewers actually read._
       same function `step` calls for every tank.
 - [ ] `view(world, viewer) → Snapshot` — the one door to the wire: the entities within the viewer's
       interest radius plus a margin, everyone's score, nothing else.
-- [ ] The arena as data: walls as boxes, spawn points, crate spots; a test that every spawn point
+- [ ] The arena as data — in `protocol` beside `RULES`, since the bots path round its walls and may
+      not import `sim` (protocol D6): walls as boxes, spawn points, crate spots; a test that every spawn point
       sees no wall inside a tank's radius and every crate is reachable.
 - [ ] Tests: every rule of § Rules on staged worlds · determinism: the same inputs from the same
       seed give the same world, byte for byte, in Node and in happy-dom · 100,000 ticks of 12
@@ -218,8 +244,8 @@ _2–3 days._
       repeats the last input; a queue longer than 4 ticks drops its oldest (the client will be
       corrected). The last applied `seq` goes back in every snapshot — the acknowledgement
       prediction replays from.
-- [ ] **Snapshots** every tick to every client: `view` for that client, delta-encoded against the
-      last snapshot the client acknowledged; a full one when it acknowledged none.
+- [ ] **Snapshots** every tick to every client: `view` for that client, `protocol.diff`ed against
+      the last view sent on that socket; against nothing for a socket's first (protocol § 5.2).
 - [ ] Clock sync (`ping`/`pong`): the client learns the server's tick and its round trip; the server
       learns each client's round trip, which ADR-0002's fast-forward reads.
 - [ ] Shells fast-forwarded per ADR-0002, capped at 100 ms.
@@ -358,7 +384,7 @@ _2 days._
       inputs; the server repeats the last one and then idles the tank; the tab back in view snaps
       to the truth and resumes prediction.
 - [ ] A slow client: when a socket's `bufferedAmount` grows past a bound, the server skips its
-      snapshots (the next is a delta against what it acknowledged, so nothing breaks) instead of
+      snapshots (the next is a delta against what it last sent, so nothing breaks) instead of
       queueing them; past a second bound, it closes it.
 - [ ] Hostile inputs: an input is a direction and buttons, never a position, so speed is not
       something a client can claim; inputs beyond the queue's bound dropped; a client sending more

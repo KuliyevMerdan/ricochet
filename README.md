@@ -5,8 +5,9 @@ drive. Top-down and twin-stick: the hull goes where you steer, the turret where 
 shell bounces off a wall once. Node + TypeScript on the server, Phaser in the browser, one WebSocket
 carrying a binary protocol.
 
-> ⚠️ **Status (2026-10-03): workspace built, no game yet.** **S0** has landed — the workspace, its
-> enforced boundaries, CI. See [`ROADMAP.md`](ROADMAP.md) — **S1**, the contracts, is next.
+> ⚠️ **Status (2026-10-03): contracts written, no game yet.** **S0** and **S1** have landed — the
+> workspace and its enforced boundaries; the wire protocol, its three ADRs, exact integer geometry and
+> a binary codec. See [`ROADMAP.md`](ROADMAP.md) — **S2**, the world step, is next.
 
 ## What makes it interesting to build
 
@@ -22,8 +23,8 @@ Not the tanks. The 150 milliseconds between your thumb and the server.
   delay that adapts to your link's jitter.
 - **Shells are fast-forwarded, not targets rewound**: yours starts on the server where your screen
   drew it, and hits are decided only there.
-- **The wire is bytes**: quantised positions, deltas against what you acknowledged, and only what
-  lies within your view.
+- **The wire is bytes**: the world in integer eighths of a unit, deltas against the last snapshot,
+  a shell sent once and flown on by your own browser, and only what lies within your view.
 - **And you can watch it work**: a ghost of the server's truth over your tank, the snapshot buffer,
   corrections per second, and a network lab that breaks only your own connection.
 
@@ -33,5 +34,5 @@ Not the tanks. The 150 milliseconds between your thumb and the server.
 | --- | --- |
 | [`CLAUDE.md`](CLAUDE.md) | The canon — architecture, packages, rules. Kept current as code lands. |
 | [`ROADMAP.md`](ROADMAP.md) | The task map — blocks, gates, `Done when`. |
-| `docs/protocol.md` | The wire contract — every message's bytes, the quantisation, the rules. *(S1)* |
-| `docs/adr/` | The decisions that everything else is downstream of. *(S1)* |
+| [`docs/protocol.md`](docs/protocol.md) | The wire contract — every message's bytes, the units, the rules. |
+| [`docs/adr/`](docs/adr) | The decisions that everything else is downstream of. |
