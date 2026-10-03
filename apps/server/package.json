@@ -17,17 +17,24 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --config ../../config/vitest.package.ts"
+    "test": "vitest run --config ../../config/vitest.package.ts",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "soak": "RICOCHET_SOAK_S=300 vitest run --config ../../config/vitest.package.ts src/server.test.ts"
   },
   "dependencies": {
     "@ricochet/sim": "workspace:*",
     "@ricochet/bots": "workspace:*",
     "@ricochet/protocol": "workspace:*",
-    "@ricochet/geom": "workspace:*"
+    "@ricochet/geom": "workspace:*",
+    "fastify": "catalog:",
+    "ws": "catalog:"
   },
   "devDependencies": {
     "@types/node": "^20",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@types/ws": "catalog:",
+    "tsx": "catalog:"
   }
 }

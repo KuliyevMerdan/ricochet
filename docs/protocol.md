@@ -71,6 +71,10 @@ client                                   server
 - **The clock.** A `pong` says which tick the server was in when it answered and how far into it,
   in microseconds. The client keeps the samples with the smallest round trips and runs its own tick
   aligned to the server's (C0).
+- **The server's own measure.** The server pings every socket at the WebSocket level once a second —
+  a control frame the browser answers itself, below any JavaScript — and takes the median of the
+  last five round trips as that socket's. It is what the fast-forward reads (ADR-0002); a client
+  never reports a time it wants believed. A socket that leaves five pings unanswered is closed.
 
 ## 4. Messages
 
@@ -114,8 +118,11 @@ invalid name as `MALFORMED`; the server answers it with `NAME`.
 | bits | `u32` | aim bits 0–9 · move bits 10–19 · moving bit 20 · fire bit 21 · bits 22–31 zero |
 
 `move` is meaningful only with `moving` set; without it, its bits must be 0. One input per client
-tick. The server applies a socket's inputs one per tick in `seq` order (S3) and reports the last it
-applied as every snapshot's `ack`.
+tick. The server applies a socket's inputs one per tick in `seq` order and reports the last it
+applied as every snapshot's `ack`. An input whose `seq` is not above the last received is ignored;
+past `inputQueueMax` queued, the oldest is dropped. **When none has arrived for a tick**, the server
+holds the last one's stick and aim — but not its trigger: a shot the client did not send for that
+tick is a shell it never predicted.
 
 ### 4.3 `ping` — `0x03`
 
@@ -371,3 +378,5 @@ delay. A square rather than a circle: the screen is a rectangle, and the test is
 | D10 | The view is a square, `viewHalf` = 880 units each side (§ 8.3). | 2026-10-03 |
 | D11 | The arena is in the contract (§ 8.2), for the same reason as the rules (D6). | 2026-10-03 |
 | D12 | A shell spares its own tank until it has bounced; a shield absorbs a shell; a self-kill scores nothing; tanks do not push. | 2026-10-03 |
+| D13 | The server measures each socket's round trip itself, with WebSocket pings (§ 3). The protocol's `ping` is the client's clock sync and nothing else. | 2026-10-03 |
+| D14 | A late input holds the stick, not the trigger (§ 4.2). | 2026-10-03 |

@@ -5,10 +5,11 @@ drive. Top-down and twin-stick: the hull goes where you steer, the turret where 
 shell bounces off a wall once. Node + TypeScript on the server, Phaser in the browser, one WebSocket
 carrying a binary protocol.
 
-> ⚠️ **Status (2026-10-03): the game runs headless, nothing on screen yet.** **S0–S2** have landed —
-> the workspace and its enforced boundaries; the wire protocol, its three ADRs, exact integer
-> geometry and a binary codec; and the simulation, which has played 100,000 ticks of a 12-tank room
-> without breaking a rule. See [`ROADMAP.md`](ROADMAP.md) — the server (**S3**) is next.
+> ⚠️ **Status (2026-10-03): the server runs, nothing on screen yet.** **S0–S3** have landed — the
+> workspace and its enforced boundaries; the wire protocol, its three ADRs, exact integer geometry and
+> a binary codec; the simulation; and the server, which has held a room of 12 socket clients for five
+> minutes, every tick within 2 ms of its deadline. See [`ROADMAP.md`](ROADMAP.md) — bots and the
+> bench (**S4**) are next.
 
 ## What makes it interesting to build
 

@@ -22,6 +22,8 @@ graph, purity and exactness enforced and proven against illegal fixtures (57 roo
 symmetric direction table; `protocol`, a binary codec held to hand-written bytes and to the document.
 **S2 landed 2026-10-03** — `sim`, the room one tick at a time: 100,000 random ticks hold every
 invariant, and a tank's own inputs replayed through `stepTank` reproduce the server's tank exactly.
+**S3 landed 2026-10-03** — the server: a room of 12 on real sockets for five minutes, every tick
+within 1.77 ms of its deadline at p99, every client holding exactly the view it was sent.
 
 ---
 
@@ -78,7 +80,7 @@ only your own connection.
 | **S0** | Workspace, strict TS, boundary lint, purity tests, CI, `CLAUDE.md` | — | ✅ (landed 2026-10-03) |
 | **S1** | `protocol` · `geom` — the binary wire, quantisation, the direction table, the contract and ADRs | S0 | ✅ (landed 2026-10-03) |
 | **S2** | `sim` — the world step: tanks, shells, ricochets, damage, respawn, the arena; pure and headless | S1 | ✅ (landed 2026-10-03) |
-| **S3** | `apps/server` — rooms, the tick loop, input queues, snapshots with interest and deltas, clock sync | S2 | ☐ |
+| **S3** | `apps/server` — rooms, the tick loop, input queues, snapshots with interest and deltas, clock sync | S2 | ✅ (landed 2026-10-03) |
 | **S4** | `bots` + `tools/bench` — bots that play through inputs alone; tick cost and bytes per client measured | S2 | ☐ |
 | **C0** | `netcode` — socket, clock, prediction and reconciliation, the interpolation buffer | S1, S2, S3 | ☐ |
 | **C1** | The arena on screen — Phaser scene, generated art, camera, minimap, smoothing | C0 | ☐ |
@@ -257,30 +259,55 @@ every tank with no obstacles fails the soak at tick 122.
 
 _2–3 days._
 
-- [ ] `apps/server`: Fastify for `/health`, `/ready` and the page; `ws` for the game. Every inbound
-      frame decoded and refused as a value if malformed; a client that sends three is closed.
-- [ ] Rooms: join the fullest room with a seat, open a new one when none has; a room with no people
-      in it closes after a minute. Names filtered for length and characters.
-- [ ] **The tick loop**: a drift-free scheduler (the next tick's deadline computed from the first,
-      not from the last), the time each tick took recorded. One room's slow tick must not delay
-      another's: a room is a unit of work, not a timer of its own.
-- [ ] **Input queues**: one per player, inputs applied one per tick in `seq` order; an empty queue
-      repeats the last input; a queue longer than 4 ticks drops its oldest (the client will be
-      corrected). The last applied `seq` goes back in every snapshot — the acknowledgement
-      prediction replays from.
-- [ ] **Snapshots** every tick to every client: `view` for that client, `protocol.diff`ed against
-      the last view sent on that socket; against nothing for a socket's first (protocol § 5.2).
-- [ ] Clock sync (`ping`/`pong`): the client learns the server's tick and its round trip; the server
-      learns each client's round trip, which ADR-0002's fast-forward reads.
-- [ ] Shells fast-forwarded per ADR-0002, capped at 100 ms.
-- [ ] A resume token per player: a socket that drops keeps its tank for 10 s.
-- [ ] Integration test: 12 headless clients over a real socket with random inputs for 5 minutes —
-      every snapshot decoded, every client's view a subset of the world, every acknowledgement
-      monotonic.
+- [x] `apps/server` (2026-10-03): Fastify for `/health` and `/ready` (rooms, players, sockets, the
+      tick's lateness and work at p99); `ws` for the game at `/play`, binary frames of at most 256
+      bytes. Every inbound frame decoded and refused as a value if malformed; a socket's third is
+      `MALFORMED` and closed; anything before `hello` too, a wrong version `VERSION`, a name the
+      rules refuse `NAME`, more than 60 inputs in a second `RATE`, no `hello` within 5 s closed.
+      The work is in `Room` and `Lobby`, which know no socket — a player's socket is a `Peer` —
+      and `Connection`, one socket's side of the protocol; `sockets.ts` is the `ws` wiring. The
+      page is P1's.
+- [x] Rooms: the fullest room with a seat, a new one only when none has, `FULL` past
+      `RICOCHET_MAX_ROOMS`; a room with no connected player for a minute closes, its tokens with
+      it. Names by `protocol.validName`.
+- [x] **The tick loop** (`ticker.ts`): deadlines from the first tick, `start + n · period`; it
+      sleeps to 1.5 ms short of each and spins the rest on `setImmediate`, which yields to the
+      sockets; more than five ticks behind (a paused process) it rebases instead of replaying.
+      Every room steps on the one loop — a unit of work, not a timer of its own. Lateness and work
+      recorded per tick, the last ten minutes kept.
+- [x] **Input queues**: one per player, applied one a tick in `seq` order, a repeated or older `seq`
+      ignored, the oldest dropped past `inputQueueMax`; the last applied `seq` is every snapshot's
+      `ack`. **Diverged:** an empty queue holds the last input's stick and aim but **not its
+      trigger** (protocol D14) — a repeated shot would be a shell the client never predicted.
+- [x] **Snapshots** every tick to every connected player: `sim.view`, `protocol.diff`ed against the
+      last view sent on that socket; against nothing for a socket's first and after a resume.
+      **Diverged:** the roster follows the `welcome` (the first version sent it from inside the
+      join, before the welcome — caught by the connection's test), and goes out whole on a join, a
+      leave or a score.
+- [x] Clock sync: `pong` carries the room's tick and the microseconds into it. **Diverged:** the
+      server measures each socket's round trip itself, with WebSocket ping frames once a second —
+      answered by the browser below any JavaScript — the median of the last five; five unanswered
+      and the socket is closed (protocol D13). The protocol's `ping` is the client's clock sync
+      only.
+- [x] Shells fast-forwarded per ADR-0002: `lead` = half the measured round trip in ticks, capped by
+      `sim` at `fastForwardMax` (tested at 100 ms → two ticks).
+- [x] A resume token per player, 16 bytes from `crypto.randomBytes`: a dropped socket's tank stands
+      for `resumeGrace` ticks; a `hello` with the token gets it back with a fresh baseline and
+      closes any socket still holding it; after the grace the token is forgotten.
+- [x] Integration test (`server.test.ts`): 12 headless clients on real sockets, each driving and
+      firing at random 30 times a second and pinging twice a second, applying every snapshot to the
+      view it holds; the server records every view it sends and checks each against its world.
+      Ten seconds in CI; `pnpm --filter @ricochet/server soak` runs the five minutes.
 
 **Done when:** a room of 12 runs for 5 minutes with every tick on its deadline within 2 ms at p99,
 and each client's received snapshots, applied in order, reproduce that client's view of the
-server's world at every tick.
+server's world at every tick. **Met 2026-10-03** (`pnpm --filter @ricochet/server soak`, one
+laptop, the clients in the same process as the server): 9,007 ticks in 301 s, none skipped;
+lateness p50 0.015 ms, **p99 1.77 ms**, worst 22.6 ms (one tick); a tick's work p99 3.0 ms for 12
+players, their views and their bytes. Every one of the 12 clients held, at every tick it received,
+exactly the view the server sent it — the shells as starting conditions from when each entered its
+view — and every view sent was the world as it stood. Not yet measured: a server whose sockets are
+on other machines, which P0's load tool and P1's live demo are.
 
 ## Block S4 — Bots and the bench
 
