@@ -297,7 +297,10 @@ _2–3 days._
 - [x] Integration test (`server.test.ts`): 12 headless clients on real sockets, each driving and
       firing at random 30 times a second and pinging twice a second, applying every snapshot to the
       view it holds; the server records every view it sends and checks each against its world.
-      Ten seconds in CI; `pnpm --filter @ricochet/server soak` runs the five minutes.
+      Ten seconds in CI; `pnpm --filter @ricochet/server soak` runs the five minutes. **The 2 ms is
+      the soak's alone:** CI's first run measured 11 ms at p99 on a shared runner with every other
+      package's suites beside it, so the ten-second run holds only that no tick is a whole period
+      late.
 
 **Done when:** a room of 12 runs for 5 minutes with every tick on its deadline within 2 ms at p99,
 and each client's received snapshots, applied in order, reproduce that client's view of the
