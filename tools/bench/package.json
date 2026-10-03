@@ -1,0 +1,33 @@
+{
+  "name": "@ricochet/bench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --config ../../config/vitest.package.ts"
+  },
+  "dependencies": {
+    "@ricochet/sim": "workspace:*",
+    "@ricochet/bots": "workspace:*",
+    "@ricochet/protocol": "workspace:*",
+    "@ricochet/geom": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
