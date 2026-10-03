@@ -220,7 +220,7 @@ pnpm check
 | `pnpm lint:boundaries` | dependency-cruiser over `packages/`, `apps/`, `tools/` |
 | `pnpm build` | `tsc` to `dist/` per unit, in dependency order (Turborepo) |
 | `pnpm typecheck` | the root suites' tsconfig, then every unit's |
-| `pnpm test` | each unit's own `src/**/*.test.ts` (`config/vitest.package.ts`) |
+| `pnpm test` | each unit's own `src/**/*.test.ts` (`config/vitest.package.ts`), **one unit at a time** (`--concurrency=1`): the server's socket test measures tick lateness, and beside the CPU-bound suites on CI's four vCPUs it starved to 153 ms at p99 |
 | `pnpm test:root` | `tests/` — the rules proven against `config/fixtures/`, the direction table held to its generator (needs `python3`, standard library only), and the protocol document held to the code |
 | `pnpm format` | Prettier. Markdown is excluded: the canon is hand-wrapped |
 | `pnpm bench` | `tools/bench`: rooms of 6, 12 and 24 bots, five minutes each — rewrites `docs/bench/results.md`; fails over S4's budget. Not in `check`: it measures the machine (`--ticks N` for another length) |

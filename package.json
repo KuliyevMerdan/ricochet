@@ -10,7 +10,7 @@
   "scripts": {
     "build": "turbo run build",
     "typecheck": "tsc -p tsconfig.json && turbo run typecheck",
-    "test": "turbo run test",
+    "test": "turbo run test --concurrency=1",
     "test:root": "vitest run",
     "bench": "turbo run build --filter=@ricochet/bench && node tools/bench/dist/main.js",
     "lint": "eslint . && pnpm run lint:boundaries",

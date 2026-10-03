@@ -302,7 +302,8 @@ _2–3 days._
       Ten seconds in CI; `pnpm --filter @ricochet/server soak` runs the five minutes. **The 2 ms is
       the soak's alone:** CI's first run measured 11 ms at p99 on a shared runner with every other
       package's suites beside it, so the ten-second run holds only that no tick is a whole period
-      late.
+      late. At S4 even that failed — 153 ms beside the new bot room and grid tests, the process
+      starved — and `pnpm test` now runs the package suites one at a time.
 
 **Done when:** a room of 12 runs for 5 minutes with every tick on its deadline within 2 ms at p99,
 and each client's received snapshots, applied in order, reproduce that client's view of the

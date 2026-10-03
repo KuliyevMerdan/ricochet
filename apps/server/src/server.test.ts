@@ -172,10 +172,11 @@ describe('ROADMAP S3 done-when, over real sockets', () => {
       console.log(
         `${stats.ticks} ticks · lateness p50 ${quantile(stats.lateness, 0.5).toFixed(3)} ms, p99 ${p99.toFixed(3)} ms, max ${Math.max(...stats.lateness).toFixed(3)} ms · work p99 ${work.toFixed(3)} ms · skipped ${stats.skipped}`,
       );
-      // The done-when's 2 ms is a measurement for a quiet machine — `soak`, five minutes. In CI this
-      // runs beside every other package's suites on a shared runner (it measured 11 ms there once),
-      // so the short run holds the bound that is about correctness, not speed: no tick a whole
-      // period late at p99.
+      // The done-when's 2 ms is a measurement for a quiet machine — `soak`, five minutes. CI is a
+      // shared runner, so the short run holds the bound that is about correctness, not speed: no
+      // tick a whole period late at p99. Even that needs the package suites run one at a time
+      // (`pnpm test`): beside them on four vCPUs it measured 11 ms at S3, and 153 ms once S4's
+      // bot room and grid tests joined in — the process starved, not the tick.
       expect(p99).toBeLessThan(SECONDS >= 60 ? 2 : server.ticker.period);
       expect(stats.skipped).toBe(0);
     },
