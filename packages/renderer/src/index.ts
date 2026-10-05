@@ -12,3 +12,4 @@ export { CameraRig, LEAD, VIEW_HALF, zoomFor } from './view.js';
 export { ShellWatch } from './effects.js';
 export type { ShellEvents } from './effects.js';
 export { TANKS, tint } from './palette.js';
+export type { EffectPicture } from './picture.js';

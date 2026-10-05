@@ -303,7 +303,7 @@ part of the contract, not of `sim`, because the bots play by them and may not im
 | `roomSize` | `12` | people and bots in a room |
 | `botsFillTo` | `6` | bots fill a room to this many tanks and leave as people arrive |
 | `resumeGrace` | `300` | ticks a dropped socket keeps its tank — 10 s |
-| `fastForwardMax` | `3` | ticks a shell may be fast-forwarded by its shooter's half round trip — 100 ms (ADR-0002) |
+| `fastForwardMax` | `3` | ticks a shell may be fast-forwarded by its shooter's half round trip and its input's wait in the queue — 100 ms (ADR-0002, D16) |
 | `inputQueueMax` | `4` | inputs a player may have queued; beyond it the oldest is dropped |
 
 **Driving.** The stick names a direction. The hull turns toward it — or toward its opposite, when
@@ -385,3 +385,4 @@ delay. A square rather than a circle: the screen is a rectangle, and the test is
 | D13 | The server measures each socket's round trip itself, with WebSocket pings (§ 3). The protocol's `ping` is the client's clock sync and nothing else. | 2026-10-03 |
 | D14 | A late input holds the stick, not the trigger (§ 4.2). **Superseded by D15.** | 2026-10-03 |
 | D15 | A tick with no input stands the tank still — no stick held, no trigger (§ 4.2). Holding the stick moved the server's tank a tick the client never predicted: in C0's bench, eleven 120 ms hiccups on the way up gave eight wrong predictions held and none stood. | 2026-10-05 |
+| D16 | A shell's fast-forward is its shooter's half round trip **and the ticks its input waited in the server's queue** (§ 4.2), both the server's own measures, under the same cap. The press is that long before the server fires it; with the half round trip alone, the server's shell started a tick or two behind the one the shooter's prediction drew (C2's bench: 16 units against 6 at 150 ms). | 2026-10-06 |

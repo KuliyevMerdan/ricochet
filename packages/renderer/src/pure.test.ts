@@ -27,7 +27,6 @@ function recorder() {
   const on: ShellEvents = {
     fired: (_x, _y, _d, owner) => log.push(`fired ${owner}`),
     bounced: (x, y) => log.push(`bounced ${x},${y}`),
-    gone: (_x, _y, hit, owner) => log.push(`gone ${owner} ${hit ? 'hit' : 'wall'}`),
   };
   return { log, on };
 }
@@ -80,14 +79,24 @@ describe('ShellWatch', () => {
     expect(log).toEqual(['fired 1']);
   });
 
-  it('sparks where a shell turns off a wall, and ends it as a hit or not by where it vanished', () => {
+  it('sparks where a shell turns off a wall, and says nothing when one vanishes', () => {
     const w = new ShellWatch();
     const { log, on } = recorder();
     const t = tank(3, 5000, 5000);
     w.update([shell(5, 1, 1000, 1000, 0), shell(6, 1, 4800, 5000, 0)], [t], null, on);
     w.update([shell(5, 1, 1100, 1000, 512), shell(6, 1, 4900, 5000, 0)], [t], null, on);
+    // Gone beside a tank: a hit is the server's word (`netcode`'s effects), never a guess here.
     w.update([], [t], null, on);
-    expect(log).toEqual(['bounced 1100,1000', 'gone 1 wall', 'gone 1 hit']);
+    expect(log).toEqual(['bounced 1100,1000']);
+  });
+
+  it('leaves the own shots to netcode: no flash from a shell of the own tank', () => {
+    const w = new ShellWatch();
+    const { log, on } = recorder();
+    const me = tank(1, 1000, 1000);
+    w.update([], [], me, on);
+    w.update([shell(-7, 1, 1300, 1000)], [], me, on);
+    expect(log).toEqual([]);
   });
 
   it('allocates no record in steady play: a gone shell’s is reused', () => {

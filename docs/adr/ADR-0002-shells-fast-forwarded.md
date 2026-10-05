@@ -1,7 +1,9 @@
 # ADR-0002 — Shells are fast-forwarded by the shooter's latency; targets are not rewound
 
 - **Status:** accepted
-- **Date:** 2026-10-03
+- **Date:** 2026-10-03 · **amended** 2026-10-06 (C2): the fast-forward adds the input's wait in
+  the server's queue (protocol D16); the client eases its predicted shell back by what the cap
+  leaves over.
 - **Applies to:** `sim`, `apps/server`, `netcode`, `apps/web`.
 
 ## Context
@@ -28,17 +30,23 @@ Shooters solve this one of two ways:
 ## Decision
 
 **A shell fired by an input is born on the server at the muzzle and immediately advanced by the
-shooter's measured half round trip, capped at `fastForwardMax` ticks (100 ms). From then on it is an
+shooter's measured half round trip and the ticks its input waited in the server's queue, capped at
+`fastForwardMax` ticks (100 ms). From then on it is an
 ordinary shell in the server's present. Hits are decided only on the server, against where tanks
 are on the server — nothing is rewound.**
 
 - The half round trip is the server's own measurement of the socket (`ping`/`pong`, S3), never a
-  number the client sends (invariant 1 of [`docs/protocol.md`](../protocol.md)).
+  number the client sends (invariant 1 of [`docs/protocol.md`](../protocol.md)); the wait is the
+  server's count of the ticks between the input's arrival and the tick that took it, less half a
+  tick. Together they are the time from the press to the shot (protocol D16, C2).
 - The fast-forward is steps of the ordinary shell step: a shell fast-forwarded into a wall bounces,
   and one fast-forwarded into a tank hits it — at the server's present.
-- The shooter's client draws its own shell at the press (C2) and adopts the real one when the
-  snapshot carrying it arrives, matched by the `shot` event's `seq`; the small difference decays
-  away like any correction.
+- The shooter's client draws its own shell at the press (C2), in the server's present, and adopts
+  the real one when the snapshot carrying it arrives, matched by the `shot` event's `seq`. What the
+  cap leaves over — the time from the press to the shot past 100 ms — the client knows (half its
+  round trip, its inputs' wait) and eases its shell back by, over the time until the adoption: the
+  shell leaves the barrel at the press and meets the server's where it will be. What is left
+  decays away like any correction — 1.4 units on average at 150 ms against the real server.
 - Everyone else sees the shell appear a little way out of the barrel — the fast-forward — which at
   100 ms is 60 units: visible, and honest about the shooter's link.
 

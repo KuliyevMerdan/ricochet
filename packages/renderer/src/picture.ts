@@ -30,6 +30,25 @@ export interface ShellPicture {
   readonly dir: number;
 }
 
+/**
+ * Something to show once — `netcode`'s effects, in the renderer's own terms. A hit, a kill and a
+ * spawn are the server's word, never a guess from where a shell vanished (ROADMAP C2).
+ */
+export type EffectPicture =
+  | {
+      readonly kind: 'fire';
+      readonly x: number;
+      readonly y: number;
+      readonly dir: number;
+      readonly owner: number;
+    }
+  | { readonly kind: 'hit'; readonly x: number; readonly y: number; readonly victim: number }
+  | { readonly kind: 'kill'; readonly x: number; readonly y: number; readonly victim: number }
+  | { readonly kind: 'spawn'; readonly x: number; readonly y: number; readonly tank: number }
+  | { readonly kind: 'end'; readonly x: number; readonly y: number; readonly owner: number }
+  | { readonly kind: 'fizzle'; readonly x: number; readonly y: number }
+  | { readonly kind: 'crate'; readonly spot: number };
+
 /** One frame's picture. */
 export interface Picture {
   /** The own tank, drawn on top and followed by the camera; `null` before there is one. */
@@ -38,6 +57,8 @@ export interface Picture {
   readonly shells: readonly ShellPicture[];
   /** A bit per crate spot holding a crate (the spots are the arena's). */
   readonly crates: number;
+  /** What came due since the last picture, to show once. */
+  readonly effects: readonly EffectPicture[];
   /** Where the player aims, as a direction — the camera leads toward it. `null`: no lead. */
   readonly aim: number | null;
 }

@@ -32,6 +32,9 @@ inventing a late input (protocol D15).
 **C1 landed 2026-10-05** — the arena in a browser: on a phone profile with the CPU throttled 4×, 12
 tanks and 36 shells at the display's rate, ten minutes with a flat heap, a hidden tab drawing
 nothing; `sim`'s pinned run the same in Chromium, Firefox and WebKit.
+**C2 landed 2026-10-06** — feel: three input schemes, own shells predicted and adopted, hits only
+from the server; at 150 ms a key and a press each on the next frame, and 649 hits drawn in ten
+minutes, every one the server's (protocol D16).
 
 ---
 
@@ -92,7 +95,7 @@ only your own connection.
 | **S4** | `bots` + `tools/bench` — bots that play through inputs alone; tick cost and bytes per client measured | S2 | ✅ (landed 2026-10-03) |
 | **C0** | `netcode` — socket, clock, prediction and reconciliation, the interpolation buffer | S1, S2, S3 | ✅ (landed 2026-10-05) |
 | **C1** | The arena on screen — Phaser scene, generated art, camera, minimap, smoothing | C0 | ✅ (landed 2026-10-05) |
-| **C2** | Feel — three input schemes, own shells predicted, hits and deaths, the scoreboard | C1 | ☐ |
+| **C2** | Feel — three input schemes, own shells predicted, hits and deaths, the scoreboard | C1 | ✅ (landed 2026-10-06) |
 | **C3** | The netcode made visible — the server ghost, the debug overlay, the network lab, the kill replay | C2, S3 | ☐ |
 | **P0** | Hardening — reconnect, hidden tabs, slow clients, hostile inputs, load | C2, S3, S4 | ☐ |
 | **P1** | Packaging — deploy, README, Playwright E2E in CI | C3, P0 | ☐ |
@@ -473,22 +476,45 @@ page ran at 62 fps with 8 of 1,244 frames over 25 ms; a real phone is P1's.
 
 _3 days._
 
-- [ ] Three input schemes behind one `input()`: keyboard + mouse, two touch sticks (the right one
-      fires while pushed past a dead zone), a gamepad. The scheme switches to whatever was touched
-      last; the sticks appear only on a touch screen.
-- [ ] **Own shells predicted**: a press spawns a shell at once, tagged with the input's `seq`; the
-      snapshot that carries the server's shell for that `seq` adopts it (the offset decaying, as
-      for the tank); a shell the server refused (reload, three in the air) fizzles. Muzzle flash
-      and recoil at the press.
-- [ ] **Hits are never predicted**: sparks on a tank, its hit points, a kill — only from the server's
-      events. A predicted shell that passes through a tank the server says it missed just flies on.
-- [ ] Death and respawn: the killer named, the 3 s count, the camera holding on the place, the
-      shield's glow on respawn. The room's top five, your rank if you are below them, a kill feed.
-- [ ] Settings remembered: sound, the sticks' size and side, the network overlay.
+- [x] Three input schemes behind one `intent()` (2026-10-06): keyboard + mouse, two touch sticks
+      (the aim stick fires while pushed past 55 % of its travel), a gamepad (the standard mapping).
+      The scheme switches to whatever was touched last; the sticks appear only once the screen is
+      touched. **Diverged:** a second door, `peek()` — the intent between ticks, consuming nothing
+      — so the own tank is drawn toward the next input and a press fires on its frame; and a press
+      is latched until an input carries it, so a click shorter than a tick still fires.
+- [x] **Own shells predicted**: a press spawns a shell at once, tagged with the input's `seq`; the
+      snapshot whose `shot` event carries that `seq` adopts the server's shell under the same drawn
+      id, the step decaying as for the tank; a shot acknowledged with no `shot` (the tank dead,
+      shielded, reloading or out of shells) fizzles. Muzzle flash and recoil at the press.
+      **Diverged:** (1) the gun is predicted — the timers then the trigger, as `sim.step` runs them,
+      replayed with the tank, the shells in the air counted by their flight — so a refused shot is
+      not drawn at all: 26 of 945 fizzled in ten minutes, the tank killed in between. (2) Own
+      shells fly in the **server's present**, not the others' interpolated past — that is where
+      the server's shell will be (ADR-0002). (3) **Protocol D16:** the server's fast-forward adds
+      the ticks the input waited in its queue, and the client eases its shell back by what the
+      100 ms cap leaves over; the step at adoption fell from 34 units to 1.5 at 150 ms.
+- [x] **Hits are never predicted**: sparks on a tank and its white flash, a kill's burst, a spawn's —
+      only from the server's events, shown when the drawn time reaches their tick (the own shells'
+      hits on arrival, in the present they fly in). A predicted shell over a tank the server says it
+      missed flies on; an own shell drawn past its wall when the server's hit arrives still shows
+      the hit. **Diverged:** C1's renderer inferred a hit where a shell vanished near a tank; that
+      guess is gone.
+- [x] Death and respawn: the killer named (or the own ricochet), the count to the respawn, the camera
+      holding on the place, the shield's glow on respawn. The room's top five, your place if you
+      are below them, a kill feed of the last four.
+- [x] Settings remembered: sound, the sticks' size and side, a small network overlay (round trip,
+      delay, unacknowledged, corrections, shots and their step, bytes, frames) that C3 grows.
 
 **Done when:** at 150 ms of round trip, the own tank moves on the frame after the key, a shell
 leaves the barrel on the frame after the press, and in 10 minutes against bots no predicted shell
-is ever drawn hitting a tank the server says it missed.
+is ever drawn hitting a tank the server says it missed. **Met 2026-10-06**
+(`pnpm --filter @ricochet/web feel`, [`docs/perf/`](docs/perf/README.md); the page and the real
+server with eleven bots behind a proxy holding every byte 75 ms each way): a key drew the own tank
+moved on the **next frame in 20 of 20** trials, a press drew its shell on the **next frame in 20 of
+20**; in ten minutes of play, **649 hits drawn, each a `hit` the server sent**, and 922 own shells
+ended, each at a hit, a wall, its age or a refusal — none vanishing at a tank it passed. Touch and a
+stand-in gamepad each drove and fired. In `netcode`'s own ten minutes at 150 ± 40 ms
+(`netcode.test.ts`), every hit drawn was one the server sent, each once.
 
 ## Block C3 — The netcode made visible
 
@@ -572,4 +598,5 @@ network from the lab, and watch their tank stay under their thumb — in under t
   drive; with it, 13 of 999 over eight runs (ADR-0001, amended).
 - ~~**The interest radius**~~ — **decided at S2:** a square, `viewHalf` = 880 units each side of the
   tank (protocol § 8.3).
-- **Gamepad on iOS Safari** — supported or said not to be. (C2)
+- **Gamepad on iOS Safari** — read through the standard mapping, which Safari supports; tested only
+  with a stand-in pad in Chromium. (P1, on a real device)

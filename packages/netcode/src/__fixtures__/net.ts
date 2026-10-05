@@ -12,6 +12,7 @@ import { createWorld, join, step, view } from '@ricochet/sim';
 import type { Command, TankBody, World } from '@ricochet/sim';
 import { Client } from '../client.js';
 import type { Frame, Intent, SocketEvents } from '../client.js';
+import type { Effect } from '../own.js';
 import type { Reconciled } from '../prediction.js';
 
 /**
@@ -137,6 +138,9 @@ export interface TickTruth {
   readonly others: readonly { readonly x: number; readonly y: number }[];
   /** The seq applied for the client this tick, or 0 for none. */
   readonly applied: number;
+  /** The tick's hits, every shell's — and every shell in the air after it, by id. */
+  readonly hits: readonly { readonly shell: number; readonly victim: number }[];
+  readonly shells: readonly { readonly id: number; readonly owner: number }[];
 }
 
 /**
@@ -151,9 +155,19 @@ export class FakeServer {
   readonly truth = new Map<number, TickTruth>();
   /** Inputs the queue dropped for being past `inputQueueMax`. */
   dropped = 0;
+  /** Triggers the server did not fire, and the gun as it stood. */
+  readonly refused: {
+    seq: number;
+    tick: number;
+    reload: number;
+    shield: number;
+    inAir: number;
+    alive: boolean;
+  }[] = [];
   /** Seqs applied, in the order they were. */
   readonly applied: number[] = [];
-  private queue: Input[] = [];
+  /** Inputs received and not yet applied, with the tick that had last run when each arrived. */
+  private queue: { input: Input; at: number }[] = [];
   private received = 0;
   private ack = 0;
   private sent: View | null = null;
@@ -167,6 +181,10 @@ export class FakeServer {
     private readonly random: () => number,
     /** What a tick with no input does: stand (protocol D15), or hold the last stick as D14 did. */
     private readonly late: 'stand' | 'hold' = 'stand',
+    /** The round trip the server measures, ms — what a shell is fast-forwarded by half of. */
+    private readonly rtt = 0,
+    /** Whether the fast-forward adds the ticks the input waited in the queue (protocol D16). */
+    private readonly queued = true,
   ) {
     // Half the others step before the client's tank in a tick and half after (sim § 8.1 drives in
     // ascending id), so a prediction is judged against both.
@@ -205,7 +223,7 @@ export class FakeServer {
     } else if (m.type === 'input') {
       if (m.seq <= this.received) return;
       this.received = m.seq;
-      this.queue.push(m);
+      this.queue.push({ input: m, at: this.world.tick });
       if (this.queue.length > RULES.inputQueueMax) {
         this.queue.shift();
         this.dropped++;
@@ -245,25 +263,56 @@ export class FakeServer {
     }
     let applied = 0;
     if (this.you) {
-      const next = this.queue.shift();
-      if (next) {
+      const q = this.queue.shift();
+      const next = q?.input;
+      if (q && next) {
+        // ADR-0002: half the round trip, and (D16) the time the input waited here, in ticks.
+        const waited = this.queued ? this.world.tick + 1 - q.at - 0.5 : 0;
+        const lead = Math.round(this.rtt / 2 / (1000 / RULES.tickHz) + waited);
         this.ack = next.seq;
         this.last = next;
         applied = next.seq;
         this.applied.push(next.seq);
-        commands.set(this.you, { aim: next.aim, move: next.move, fire: next.fire, seq: next.seq });
+        commands.set(this.you, {
+          aim: next.aim,
+          move: next.move,
+          fire: next.fire,
+          seq: next.seq,
+          lead,
+        });
       } else if (this.late === 'hold' && this.last) {
         commands.set(this.you, { aim: this.last.aim, move: this.last.move, fire: false });
       }
     }
+    const before = this.world;
     const r = step(this.world, commands);
     this.world = r.world;
+    const mine = commands.get(this.you);
+    if (
+      mine?.fire &&
+      mine.seq !== undefined &&
+      !r.events.some((e) => e.type === 'shot' && e.seq === mine.seq)
+    ) {
+      const t = before.tanks.find((x) => x.id === this.you);
+      this.refused.push({
+        seq: mine.seq,
+        tick: this.world.tick,
+        reload: Math.max(0, (t?.reload ?? 0) - 1),
+        shield: Math.max(0, (t?.shield ?? 0) - 1),
+        inAir: before.shells.filter((s) => s.owner === this.you).length,
+        alive: t?.alive ?? false,
+      });
+    }
     const me = this.world.tanks.find((t) => t.id === this.you);
     if (!me) return;
     this.truth.set(this.world.tick, {
       me,
       others: this.world.tanks.filter((t) => t.id !== this.you && t.alive),
       applied,
+      hits: r.events.flatMap((e) =>
+        e.type === 'hit' ? [{ shell: e.shell, victim: e.victim }] : [],
+      ),
+      shells: this.world.shells.map((s) => ({ id: s.id, owner: s.owner })),
     });
     const v = view(this.world, this.you, r.events, this.ack);
     this.out(encodeServer(diff(this.sent, v)));
@@ -285,6 +334,8 @@ export interface Scenario {
   readonly seed: number;
   /** The server's rule for a tick with no input (`FakeServer`). */
   readonly late?: 'stand' | 'hold';
+  /** Whether the server's fast-forward adds the input's wait in its queue (protocol D16). */
+  readonly queued?: boolean;
 }
 
 /**
@@ -314,6 +365,14 @@ export interface Run {
   readonly clockErrors: readonly number[];
   /** Every tick the client was sent, in the order it got them. */
   readonly snapshotTicks: readonly number[];
+  /** Every effect the client's frames carried, with the frame's tick, and every hit event its
+   * snapshots did. */
+  readonly effects: readonly { readonly frame: number; readonly effect: Effect }[];
+  readonly hitEvents: readonly {
+    readonly tick: number;
+    readonly shell: number;
+    readonly victim: number;
+  }[];
 }
 
 /** Within this, eighths, another tank's centre is near enough to block the own tank in a tick: two
@@ -335,7 +394,7 @@ export function route(): () => Intent {
 export function run(s: Scenario): Run {
   const sched = new Scheduler();
   const random = rng(s.seed);
-  const server = new FakeServer(sched, s.others, rng(s.seed + 1), s.late);
+  const server = new FakeServer(sched, s.others, rng(s.seed + 1), s.late, s.rtt, s.queued ?? true);
   const half = { delay: s.rtt / 2, jitter: s.jitter, stalls: s.stalls ?? [] };
   const up = new Link(sched, { ...half, stalls: [...half.stalls, ...(s.upStalls ?? [])] }, random);
   const down = new Link(sched, half, random);
@@ -394,9 +453,17 @@ export function run(s: Scenario): Run {
     },
   });
 
+  const hitEvents: { tick: number; shell: number; victim: number }[] = [];
+  client.onEvents((events, view) => {
+    for (const e of events) {
+      if (e.type === 'hit') hitEvents.push({ tick: view.tick, shell: e.shell, victim: e.victim });
+    }
+  });
+  const effects: { frame: number; effect: Effect }[] = [];
   let frames = 0;
   const frameProblems: string[] = [];
   const draw = (f: Frame) => {
+    for (const effect of f.effects) effects.push({ frame: frames, effect });
     if (client.state.kind !== 'live' || f.from === null) return;
     frames++;
     if (!received.has(f.from)) frameProblems.push(`drew from tick ${f.from}, never received`);
@@ -416,5 +483,15 @@ export function run(s: Scenario): Run {
       if (est !== null) clockErrors.push(est - sched.now / (1000 / RULES.tickHz));
     }
   }
-  return { client, server, judged, frames, frameProblems, clockErrors, snapshotTicks };
+  return {
+    client,
+    server,
+    judged,
+    frames,
+    frameProblems,
+    clockErrors,
+    snapshotTicks,
+    effects,
+    hitEvents,
+  };
 }

@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --config ../../config/vitest.package.ts",
-    "perf": "node scripts/perf.mjs"
+    "perf": "node scripts/perf.mjs",
+    "feel": "node scripts/feel.mjs"
   },
   "dependencies": {
     "@ricochet/netcode": "workspace:*",

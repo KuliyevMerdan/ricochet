@@ -15,6 +15,8 @@ type Cue = 'shot' | 'ricochet' | 'hit';
 export class Sounds {
   private playing = 0;
   private readonly ready: boolean;
+  /** The player's setting: nothing plays while it is set. */
+  muted = false;
 
   constructor(private readonly scene: Phaser.Scene) {
     const manager = scene.sound;
@@ -54,7 +56,7 @@ export class Sounds {
 
   /** Play `cue` heard from `distance` units away, if within hearing and the budget. */
   play(cue: Cue, distance: number): void {
-    if (!this.ready || this.playing >= BUDGET || distance > HEARING) return;
+    if (!this.ready || this.muted || this.playing >= BUDGET || distance > HEARING) return;
     const volume = 0.6 * (1 - distance / HEARING);
     if (volume <= 0.02) return;
     const sound = this.scene.sound.add(cue, { volume, detune: Math.random() * 200 - 100 });

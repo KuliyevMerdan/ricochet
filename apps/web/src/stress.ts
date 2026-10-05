@@ -27,7 +27,14 @@ export function stress(size: number): (now: number) => Picture {
   }));
   const shells: (Mutable<ShellPicture> & { born: number; vx: number; vy: number })[] = [];
   let nextShell = 1;
-  const picture: Mutable<Picture> = { me: null, others: [], shells, crates: 0b1111, aim: null };
+  const picture: Mutable<Picture> = {
+    me: null,
+    others: [],
+    shells,
+    crates: 0b1111,
+    effects: [],
+    aim: null,
+  };
   const [me, ...others] = tanks;
   picture.me = me ?? null;
   picture.others = others;

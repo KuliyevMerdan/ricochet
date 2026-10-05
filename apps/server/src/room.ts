@@ -22,8 +22,9 @@ export interface Player {
   peer: Peer | null;
   /** A bot's memory; `null` for a person. A bot has no peer and no token, and never drops. */
   bot: Memory | null;
-  /** Inputs received and not yet applied, in `seq` order. */
-  queue: Input[];
+  /** Inputs received and not yet applied, in `seq` order, each with the room's tick when it came —
+   * how long it waited is part of its shell's fast-forward (protocol D16). */
+  queue: { readonly input: Input; readonly at: number }[];
   /** The newest `seq` received — older or repeated ones are ignored. */
   received: number;
   /** The last `seq` applied — every snapshot's `ack`. */
@@ -185,7 +186,7 @@ export class Room {
   input(player: Player, msg: Input): void {
     if (msg.seq <= player.received) return;
     player.received = msg.seq;
-    player.queue.push(msg);
+    player.queue.push({ input: msg, at: this.world.tick });
     if (player.queue.length > RULES.inputQueueMax) player.queue.shift();
   }
 
@@ -216,16 +217,22 @@ export class Room {
       return r.input;
     }
     if (!p.peer) return null;
-    const next = p.queue.shift();
-    const rtt = p.peer.rttMs();
-    const lead = rtt === null ? 0 : Math.round(rtt / 2 / (1000 / RULES.tickHz));
-    if (!next) {
+    const queued = p.queue.shift();
+    const next = queued?.input;
+    if (!queued || !next) {
       // A late input is not invented (protocol D15): the tank stands this tick. Its client predicted
       // every input it sent and nothing between them, and a tick of standing still is the one tick
       // that changes nothing it predicted — so its prediction stays exact however the link jitters.
       return null;
     }
     p.ack = next.seq;
+    // ADR-0002: a shell starts where its shooter's prediction drew it — moved on by half the
+    // socket's round trip, which the server measures, and (protocol D16) by the ticks the input
+    // waited here, which it counts: it arrived on average half a tick before the next one ran.
+    // `sim` caps the sum at `fastForwardMax`.
+    const rtt = p.peer.rttMs();
+    const waited = this.world.tick + 1 - queued.at - 0.5;
+    const lead = rtt === null ? 0 : Math.round(rtt / 2 / (1000 / RULES.tickHz) + waited);
     return { aim: next.aim, move: next.move, fire: next.fire, seq: next.seq, lead };
   }
 

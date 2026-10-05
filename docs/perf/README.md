@@ -42,3 +42,37 @@ took this run from 56 fps and 57 long frames to the figures above.
   display's rate either way, so the motion looks the same; what 15 Hz changes is the interpolation
   delay — two snapshot intervals, 133 ms instead of 66, the others drawn that much further in the
   past for a shooter to aim at — to save 0.8 KB/s the 6 KB/s budget does not need.
+
+# The feel — ROADMAP C2
+
+`pnpm build && pnpm --filter @ricochet/web feel` ([`apps/web/scripts/feel.mjs`](../../apps/web/scripts/feel.mjs))
+puts a TCP proxy between the page and the server that holds every byte **75 ms each way** — 150 ms
+of round trip, delivered in order as TCP does — and drives the page in Chromium. A trial starts
+from a standing, loaded tank, just after a frame; it counts the frames until the first one that
+shows the effect.
+
+## Results — 2026-10-06, Apple M4 Pro, Chromium 1234
+
+| | |
+| --- | --- |
+| A key to the own tank drawn moved | **1 frame** in 20 of 20 |
+| A press to the own shell drawn | **1 frame** in 20 of 20 |
+| Touch: two sticks pushed | the sticks shown, the tank driven 268 units in 1.2 s, 3 shots |
+| A gamepad: left stick, right trigger | the sticks hidden, the tank driven 264 units, 3 shots |
+| 10 minutes against eleven bots: hits drawn | **649, each a `hit` the server sent**; 651 sent |
+| … own shells that stopped being drawn | 922, **every one at its hit, its wall, its age or a refusal** — none at a tank it passed |
+| … own shots | 945 predicted, 874 adopted, 26 fizzled (the tank killed or out of shells by then), 3 the server fired unforeseen |
+| … the step at adoption | **1.5 units** on average, 26 at worst |
+
+## What was decided from them
+
+- **The own tank is drawn toward the next input,** not between the last two: from the newest
+  predicted tick toward the tank the intent *now* would make of it. A key shows on the next frame;
+  when the tick comes and the input carries the same intent, the drawing is already there.
+- **A press fires on its frame.** The page's `peek()` — the intent without consuming a press — lets
+  `netcode` fire the shell the next input will carry, at once; a click shorter than a tick is
+  latched until an input carries it.
+- **Own shells fly in the server's present**, not the others' interpolated past, because that is
+  where the server's shell will be (ADR-0002) — and its fast-forward counts the input's wait in the
+  queue (protocol D16). What the 100 ms cap leaves over, the client eases its shell back by before
+  the adoption: at 150 ms the step fell from 34 units to 1.5.

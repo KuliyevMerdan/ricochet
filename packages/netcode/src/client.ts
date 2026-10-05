@@ -11,6 +11,7 @@ import type {
   Arena,
   ClientMessage,
   ErrorCode,
+  GameEvent,
   Input,
   RosterEntry,
   ServerMessage,
@@ -21,7 +22,11 @@ import type {
 } from '@ricochet/protocol';
 import type { TankBody } from '@ricochet/sim';
 import { ServerClock, TICK_MS } from './clock.js';
-import { Shells, between, lerpDir, others } from './picture.js';
+import { Happenings } from './events.js';
+import { OwnShells } from './own.js';
+import type { Effect, ShotStats } from './own.js';
+import { NO_SHOTS } from './own.js';
+import { Shells, between, others } from './picture.js';
 import type { DrawnShell, DrawnTank } from './picture.js';
 import { Prediction } from './prediction.js';
 import type { Mover, Offset, Reconciled } from './prediction.js';
@@ -79,8 +84,14 @@ export interface ClientOptions {
   readonly clock: Clock;
   readonly timers: Timers;
   readonly name: string;
-  /** Sampled once a client tick: the input that tick sends. */
+  /** Sampled once a client tick: the input that tick sends. It may consume a press. */
   readonly intent: () => Intent;
+  /**
+   * The intent now, between ticks, consuming nothing — what the next input will be. The own tank is
+   * drawn toward it and a press fires on the frame it lands on, not the next tick. Without it the
+   * last input sent stands in.
+   */
+  readonly peek?: () => Intent;
   /** Every reconciliation, as it happens — the overlay's corrections, the tests' oracle. */
   readonly observe?: (r: Reconciled) => void;
 }
@@ -92,7 +103,11 @@ export interface Frame {
   /** The own tank: predicted, plus what is left of the corrections. */
   readonly me: DrawnTank | null;
   readonly others: readonly DrawnTank[];
+  /** The others' shells at the drawn time; the own, predicted or adopted, in the present — the own
+   * under −seq while it was predicted, so a shell keeps its id through its adoption. */
   readonly shells: readonly DrawnShell[];
+  /** What to show once, that came due since the last frame (`Effect`). */
+  readonly effects: readonly Effect[];
   /** A bit per crate spot holding a crate. */
   readonly crates: number;
   /** The correction still being smoothed away on the own tank, eighths — the overlay's number. */
@@ -110,6 +125,9 @@ export interface NetStats {
   /** How many ticks ahead of the server's present the inputs are sent. */
   readonly lead: number;
   readonly corrections: number;
+  /** The own shots: predicted, adopted by the server's shell, fizzled, and fired by the server
+   * unforeseen; the step at adoption, eighths, mean and worst of the last 100. */
+  readonly shots: ShotStats;
   readonly bytesIn: number;
   readonly bytesOut: number;
 }
@@ -138,6 +156,7 @@ const EMPTY: Frame = {
   me: null,
   others: [],
   shells: [],
+  effects: [],
   crates: 0,
   offset: { x: 0, y: 0 },
   from: null,
@@ -174,12 +193,13 @@ function body(t: Tank, v: View): TankBody {
 export class Client {
   private current: ConnectionState = { kind: 'connecting', attempt: 0 };
   private readonly listeners = new Set<(s: ConnectionState) => void>();
+  private readonly eventListeners = new Set<(events: readonly GameEvent[], view: View) => void>();
   private socket: Socket | null = null;
   /** Bumped per socket: a late event from a socket already given up on is ignored. */
   private generation = 0;
   private attempt = 0;
   private token: Uint8Array | null = null;
-  private you = 0;
+  private ownId = 0;
   private arena: Arena | null = null;
   private view: View | null = null;
   private rosterNow: readonly RosterEntry[] = [];
@@ -188,13 +208,18 @@ export class Client {
   private readonly timeline = new Timeline();
   private prediction: Prediction | null = null;
   private shells: Shells | null = null;
-
+  private own: OwnShells | null = null;
+  private happenings: Happenings | null = null;
+  /** Effects that came due between frames — a shot sent, a snapshot's hits — for the next. */
+  private effects: Effect[] = [];
+  private lastIntent: Intent = { aim: 0, move: null, fire: false };
   private seq = 0;
   private sentTick: number | null = null;
   private lead: number | null = null;
   private readonly sentAt = new Map<number, number>();
   private acked = 0;
   private waits: number[] = [];
+  private recentWaits: number[] = [];
 
   private pingId = 0;
   private pings = 0;
@@ -222,6 +247,17 @@ export class Client {
     return () => this.listeners.delete(listener);
   }
 
+  /** Every snapshot's events as it arrives, with its view — the kill feed, the death screen. */
+  onEvents(listener: (events: readonly GameEvent[], view: View) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
+  }
+
+  /** The own tank's id once welcomed; 0 before. */
+  get you(): number {
+    return this.ownId;
+  }
+
   get roster(): readonly RosterEntry[] {
     return this.rosterNow;
   }
@@ -244,6 +280,7 @@ export class Client {
       unacked: this.prediction?.unacked ?? 0,
       lead: this.lead ?? 0,
       corrections: this.corrections,
+      shots: this.own?.stats() ?? NO_SHOTS,
       bytesIn: this.bytesIn,
       bytesOut: this.bytesOut,
     };
@@ -252,15 +289,32 @@ export class Client {
   /** The picture at local time `now`: the own tank predicted, everyone else interpolated. */
   frame(now: number): Frame {
     const view = this.view;
-    if (this.current.kind !== 'live' || !view || !this.prediction || !this.shells) return EMPTY;
+    const { prediction, shells, own, happenings } = this;
+    if (this.current.kind !== 'live' || !view || !prediction || !shells || !own || !happenings) {
+      return EMPTY;
+    }
     const serverNow = this.server.synced ? this.server.at(now) : view.tick;
     const b = this.timeline.sample(serverNow);
-    const offset = this.prediction.offset(now);
+    const offset = prediction.offset(now);
+    const peeked = this.opts.peek?.() ?? null;
+    const want = peeked ?? { ...this.lastIntent, fire: false };
+    const next = prediction.next(command(want));
+    // A press between ticks fires now, as the next input will: the shell that input will carry.
+    if (peeked && next?.fires && this.sentTick !== null) {
+      own.fire(this.seq + 1, next.after, serverNow, this.effects);
+    }
+    const me = this.me(view, serverNow, offset, next?.after ?? null, want);
+    const effects = this.effects;
+    this.effects = [];
+    const drawn = b ? shells.draw(b, this.ownId) : [];
+    own.draw(serverNow, now, drawn, effects);
+    if (b) happenings.update(this.timeline.held(), b.tick, this.ownId, me, effects);
     return {
       tick: b?.tick ?? view.tick,
-      me: this.me(view, serverNow, offset),
-      others: b ? others(b, this.you) : [],
-      shells: b ? this.shells.draw(b) : [],
+      me,
+      others: b ? others(b, this.ownId) : [],
+      shells: drawn,
+      effects,
       crates: b?.from.crates ?? view.crates,
       offset,
       from: b?.from.tick ?? null,
@@ -367,7 +421,7 @@ export class Client {
     this.stop();
     if (!m.resumed || this.arena !== arena) this.server.reset();
     this.arena = arena;
-    this.you = m.you;
+    this.ownId = m.you;
     this.token = m.token;
     this.attempt = 0;
     // A socket starts afresh (protocol § 3): its first snapshot is against nothing, its `seq` from 1.
@@ -375,12 +429,16 @@ export class Client {
     this.timeline.reset();
     this.prediction = new Prediction(arena);
     this.shells = new Shells(arena);
+    this.own = new OwnShells(arena);
+    this.happenings = new Happenings(arena);
+    this.effects = [];
     this.seq = 0;
     this.sentTick = null;
     this.lead = null;
     this.sentAt.clear();
     this.acked = 0;
     this.waits = [];
+    this.recentWaits = [];
     this.pings = 0;
     this.pingSent.clear();
     this.set({ kind: 'live', you: m.you, resumed: m.resumed });
@@ -398,22 +456,43 @@ export class Client {
     const now = this.opts.clock.now();
     this.timeline.received(view, this.server.synced ? this.server.at(now) : null);
 
-    const own = view.tanks.find((t) => t.id === this.you);
-    if (own && this.prediction) {
+    const present = this.server.synced ? this.server.at(now) : view.tick;
+    const mine = view.tanks.find((t) => t.id === this.ownId);
+    const shots = this.own;
+    if (mine && this.prediction && shots) {
+      // The own shells first: what they adopt and end decides what the gun may fire.
+      shots.snapshot(view, this.ownId, present, now, this.effects);
       const rec = this.prediction.reconcile(
-        body(own, view),
+        body(mine, view),
         view.ack,
         view.tick,
         now,
         this.movers(view),
+        { reload: view.self.reload, shield: view.self.shield },
+        // A tick fires (§ 8.1's third step) before the shells in the air fly (its fourth): what
+        // counts at the n-th tick is what flew through the one before.
+        (n) => shots.aliveAt(view.tick + n - 1),
       );
+      for (const seq of rec.unfired) shots.cancel(seq, present, this.effects);
+      for (const seq of rec.refired) {
+        const after = this.prediction.after(seq);
+        if (after) shots.fire(seq, after, present, this.effects);
+      }
       if (rec.moved > 0) this.corrections++;
       this.opts.observe?.(rec);
     }
+    if (view.events.length > 0) for (const l of this.eventListeners) l(view.events, view);
     if (view.ack > this.acked) {
       this.firstAck(view.ack, now);
       this.acked = view.ack;
     }
+  }
+
+  /** How long an input waits on the server before its tick takes it, ticks — the median of the
+   * last second's first acknowledgements, past a round trip. */
+  private queueWait(): number {
+    const w = [...this.recentWaits].sort((a, b) => a - b);
+    return Math.max(0, w[Math.floor(w.length / 2)] ?? 0);
   }
 
   /** An input acknowledged for the first time: how long it waited on the server, past a round trip. */
@@ -422,7 +501,10 @@ export class Client {
     for (const seq of this.sentAt.keys()) if (seq <= ack) this.sentAt.delete(seq);
     const rtt = this.server.rtt();
     if (sent === undefined || rtt === null || this.lead === null) return;
-    this.waits.push((now - sent - rtt) / TICK_MS);
+    const wait = (now - sent - rtt) / TICK_MS;
+    this.waits.push(wait);
+    this.recentWaits.push(wait);
+    if (this.recentWaits.length > RULES.tickHz) this.recentWaits.shift();
     if (this.waits.length < LEAD_WINDOW) return;
     if (Math.min(...this.waits) > LEAD_SLACK) this.lead--;
     this.waits = [];
@@ -500,16 +582,20 @@ export class Client {
       this.sentTick++;
       if (prediction.unacked >= cap) continue;
       const want = this.opts.intent();
-      const input: Input = {
-        type: 'input',
-        seq: ++this.seq,
-        aim: wrapDir(Math.round(want.aim)),
-        move: want.move === null ? null : wrapDir(Math.round(want.move)),
-        fire: want.fire,
-      };
+      this.lastIntent = want;
+      const input: Input = { type: 'input', seq: ++this.seq, ...command(want) };
       this.send(input);
       this.sentAt.set(input.seq, now);
-      prediction.push(input);
+      const fires = prediction.push(input);
+      const after = prediction.after(input.seq);
+      const present = this.server.at(now);
+      if (fires && after) {
+        this.own?.fire(input.seq, after, present, this.effects);
+        const ow = rtt / 2 / TICK_MS;
+        this.own?.sent(input.seq, present, ow + this.queueWait(), ow);
+      }
+      // A shot drawn at the press that this input, sampled since, does not fire.
+      if (!fires) this.own?.cancel(input.seq, this.server.at(now), this.effects);
     }
     const ms = (this.sentTick + 1 - at) * TICK_MS;
     this.tickTimer = this.opts.timers.after(Math.max(1, ms + 0.25), () => this.wake());
@@ -522,7 +608,7 @@ export class Client {
       before && before.tick === view.tick - 1 ? before.tanks.map((t) => [t.id, t]) : [],
     );
     return view.tanks
-      .filter((t) => t.alive && t.id !== this.you)
+      .filter((t) => t.alive && t.id !== this.ownId)
       .map((t) => {
         const p = was.get(t.id);
         const vx = p?.alive ? t.x - p.x : 0;
@@ -533,31 +619,49 @@ export class Client {
           y: t.y,
           vx: driven ? vx : 0,
           vy: driven ? vy : 0,
-          ahead: t.id < this.you,
+          ahead: t.id < this.ownId,
         };
       });
   }
 
-  /** The own tank drawn: between the last two predicted ticks by how far the client's clock is
-   * into the newest, plus what is left of the corrections. Its hit points and shield are the
-   * server's. */
-  private me(view: View, serverNow: number, offset: Offset): DrawnTank | null {
-    const own = view.tanks.find((t) => t.id === this.you);
+  /**
+   * The own tank drawn: from the newest predicted tick toward the next — the tank the intent now
+   * would make of it — by how far the client's clock is into that tick, plus what is left of the
+   * corrections. A key shows on the next frame; when the tick comes and the input carries the same
+   * intent, the next tick is where the drawing already was. The turret is the aim now. Hit points
+   * and the shield are the server's.
+   */
+  private me(
+    view: View,
+    serverNow: number,
+    offset: Offset,
+    next: TankBody | null,
+    want: Intent,
+  ): DrawnTank | null {
+    const own = view.tanks.find((t) => t.id === this.ownId);
     const tank = this.prediction?.tank;
-    const prev = this.prediction?.previous;
-    if (!own || !tank || !prev) return own ? { ...own } : null;
+    if (!own || !tank) return own ? { ...own } : null;
     const t =
       this.sentTick === null || this.lead === null
-        ? 1
+        ? 0
         : Math.max(0, Math.min(1, serverNow + this.lead - this.sentTick));
-    const drawn = between({ ...own, ...pose(prev) }, { ...own, ...pose(tank) }, t);
+    const drawn = between({ ...own, ...pose(tank) }, { ...own, ...pose(next ?? tank) }, t);
     return {
       ...drawn,
       x: drawn.x + offset.x,
       y: drawn.y + offset.y,
-      turret: lerpDir(prev.turret, tank.turret, t),
+      turret: tank.alive ? wrapDir(Math.round(want.aim)) : drawn.turret,
     };
   }
+}
+
+/** An intent as the wire carries it: whole directions. */
+function command(want: Intent): { aim: number; move: number | null; fire: boolean } {
+  return {
+    aim: wrapDir(Math.round(want.aim)),
+    move: want.move === null ? null : wrapDir(Math.round(want.move)),
+    fire: want.fire,
+  };
 }
 
 function pose(t: TankBody) {

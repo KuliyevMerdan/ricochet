@@ -8,14 +8,45 @@
   </head>
   <body>
     <div id="stage"></div>
+    <div id="sticks" hidden></div>
+    <ul id="feed" aria-label="Kills" aria-live="polite"></ul>
     <div id="hud">
       <ol id="scores" aria-label="Scoreboard"></ol>
       <p id="state" role="status" hidden></p>
       <button id="reload" type="button" hidden>Reload</button>
     </div>
+    <div id="death" role="status" hidden>
+      <p id="death-by"></p>
+      <p id="death-in"></p>
+    </div>
+    <pre id="overlay" hidden></pre>
+    <button id="settings-open" type="button" aria-label="Settings">⚙</button>
+    <form id="settings" hidden>
+      <label><input id="set-sound" type="checkbox" /> Sound</label>
+      <label><input id="set-overlay" type="checkbox" /> Network overlay</label>
+      <label
+        >Sticks
+        <select id="set-size">
+          <option value="s">small</option>
+          <option value="m">medium</option>
+          <option value="l">large</option>
+        </select>
+      </label>
+      <label
+        >Move stick on the
+        <select id="set-side">
+          <option value="left">left</option>
+          <option value="right">right</option>
+        </select>
+      </label>
+      <button type="submit">Done</button>
+    </form>
     <form id="join" hidden>
       <h1>Ricochet</h1>
-      <p>Every shell bounces once. Drive with WASD, aim with the mouse, click to fire.</p>
+      <p>
+        Every shell bounces once. WASD to drive, the mouse to aim, click to fire — or two thumb
+        sticks, or a gamepad.
+      </p>
       <label for="name">Your name</label>
       <input
         id="name"

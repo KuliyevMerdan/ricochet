@@ -55,9 +55,9 @@ describe('Room', () => {
     room.input(p, input(5));
     room.input(p, input(5));
     room.input(p, input(4));
-    expect(p.queue.map((i) => i.seq)).toEqual([5]);
+    expect(p.queue.map((q) => q.input.seq)).toEqual([5]);
     for (let s = 6; s <= 10; s++) room.input(p, input(s));
-    expect(p.queue.map((i) => i.seq)).toEqual([7, 8, 9, 10]);
+    expect(p.queue.map((q) => q.input.seq)).toEqual([7, 8, 9, 10]);
     expect(p.queue).toHaveLength(RULES.inputQueueMax);
   });
 
@@ -97,6 +97,26 @@ describe('Room', () => {
       (t?.x ?? 0) + along(RULES.muzzle, 0) + 2 * along(RULES.shellSpeed, 0),
       (t?.y ?? 0) + along(RULES.muzzle, 1) + 2 * along(RULES.shellSpeed, 1),
     ]);
+  });
+
+  it('fast-forwards it further by the ticks its input waited in the queue (protocol D16)', () => {
+    const shot = (queuedBehind: number) => {
+      const room = new Room(1, 1, 0);
+      const p = room.add('Ann', 't', peer(40).p); // 40 ms: half is 0.6 of a tick
+      for (let i = 0; i <= RULES.shield; i++) room.tick();
+      const t = room.world.tanks[0];
+      const aim = t?.hull ?? 0;
+      // Inputs that arrived together: the shot waits a tick behind each one ahead of it.
+      for (let seq = 1; seq <= queuedBehind; seq++) room.input(p, input(seq, { aim }));
+      room.input(p, input(queuedBehind + 1, { fire: true, aim }));
+      for (let i = 0; i <= queuedBehind; i++) room.tick();
+      const s = room.world.shells[0];
+      const along = step(aim, RULES.shellSpeed)[0];
+      return Math.round(((s?.x ?? 0) - (t?.x ?? 0) - step(aim, RULES.muzzle)[0]) / along);
+    };
+    expect(shot(0)).toBe(1); // 0.6 + half a tick's wait
+    expect(shot(1)).toBe(2); // 0.6 + a tick and a half
+    expect(shot(3)).toBe(RULES.fastForwardMax); // capped
   });
 
   it('sends a first snapshot against nothing, then deltas a client can apply', () => {

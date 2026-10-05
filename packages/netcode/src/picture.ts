@@ -92,7 +92,8 @@ export class Shells {
 
   constructor(private readonly arena: Arena) {}
 
-  draw(b: Between): DrawnShell[] {
+  /** The others' shells at the drawn time — the own are `OwnShells`', in the present. */
+  draw(b: Between, you: number): DrawnShell[] {
     const whole = Math.floor(b.tick);
     const frac = b.tick - whole;
     const alive = new Set(b.to ? b.to.shells.map((s) => s.id) : b.from.shells.map((s) => s.id));
@@ -100,6 +101,7 @@ export class Shells {
     const seen = new Set<number>();
     for (const s of b.from.shells) {
       seen.add(s.id);
+      if (s.owner === you) continue;
       // Gone in the next view: it died within this interval, and the server said how (§ 6).
       if (!alive.has(s.id)) continue;
       const body = this.at(s, whole);

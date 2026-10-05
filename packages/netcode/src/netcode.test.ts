@@ -1,3 +1,4 @@
+import { RULES } from '@ricochet/protocol';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { run } from './__fixtures__/net.js';
 import type { Judged, Run, Scenario } from './__fixtures__/net.js';
@@ -169,5 +170,47 @@ describe('protocol D15 — a tick with no input stands the tank still', () => {
     // A wrong prediction for most of the eleven (8 on this seed): the tick after a dry one, the
     // server's tank is a held stick ahead of where the client's replay puts it.
     expect(hold.wrong).toBeGreaterThanOrEqual(5);
+  }, 60_000);
+});
+
+describe('ROADMAP C2 — the own shots and the server’s hits, the same 10 minutes', () => {
+  const get = ran({ ...LINK, seconds: MINUTES * 60, seed: 1 });
+
+  it('draws a hit only where the server sent one, and every one it sent', () => {
+    const r = get();
+    const struck = new Set<string>();
+    for (const t of r.server.truth.values())
+      for (const h of t.hits) struck.add(`${h.shell}:${h.victim}`);
+    const drawn = r.effects.flatMap((e) => (e.effect.kind === 'hit' ? [e.effect] : []));
+    expect(drawn.length).toBeGreaterThan(100);
+    expect(drawn.filter((h) => !struck.has(`${h.shell}:${h.victim}`))).toEqual([]);
+    // Each hit the client was sent, drawn once — but those still ahead of the drawn time at the end.
+    expect(new Set(drawn.map((h) => `${h.shell}:${h.victim}`)).size).toBe(drawn.length);
+    expect(drawn.length).toBeGreaterThanOrEqual(r.hitEvents.length - 1);
+  });
+
+  it('fires its own shots at once and has the server adopt them, fizzling only what it refused', () => {
+    const r = get();
+    const s = r.client.stats().shots;
+    expect(s.predicted).toBeGreaterThan(600); // a trigger every half second, less dead or shielded
+    expect(s.adopted / s.predicted).toBeGreaterThan(0.85); // the rest died at once, into a wall
+    expect(s.unforeseen).toBeLessThanOrEqual(s.predicted / 100);
+    const refused = new Set(r.server.refused.map((f) => f.seq));
+    const fizzled = r.effects.flatMap((e) => (e.effect.kind === 'fizzle' ? [e.effect.seq] : []));
+    expect(fizzled.length).toBeLessThanOrEqual(s.predicted / 100);
+    expect(fizzled.filter((seq) => !refused.has(seq))).toEqual([]);
+    // The step from the predicted shell to the server's, at adoption: under 8 units on average.
+    expect(s.stepMean).toBeLessThan(64);
+  });
+});
+
+describe('protocol D16 — a shell is fast-forwarded by its input’s wait in the queue too', () => {
+  it('meets its predicted shell where ADR-0002 alone would leave it a tick or two behind', () => {
+    const step = (queued: boolean) =>
+      run({ ...LINK, seconds: 120, seed: 4, queued }).client.stats().shots.stepMean;
+    const alone = step(false);
+    const both = step(true);
+    expect(alone).toBeGreaterThan(RULES.shellSpeed / 2); // over half a tick's flight: 10 units
+    expect(both).toBeLessThan(alone / 2);
   }, 60_000);
 });

@@ -21,12 +21,21 @@ interface TankSprites {
   readonly turret: Phaser.GameObjects.Image;
   readonly ring: Phaser.GameObjects.Image;
   pass: number;
+  /** When it last fired (the turret's recoil) and was last hit (a white flash), ms. */
+  firedAt: number;
+  hitAt: number;
 }
 
 interface ShellSprite {
   readonly core: Phaser.GameObjects.Image;
   pass: number;
 }
+
+/** How far a turret kicks back when it fires, world pixels, and how fast it returns, ms. */
+const RECOIL = 5;
+const RECOIL_MS = 70;
+/** How long a hit tank flashes white, ms. */
+const FLASH_MS = 90;
 
 /** The minimap's side, CSS pixels, and its margin from the corner. */
 const MINIMAP = 132;
@@ -68,32 +77,81 @@ export class ArenaScene extends Phaser.Scene {
   frames = 0;
   workMs = 0;
   private readonly on: ShellEvents;
+  private now = 0;
 
   constructor(private readonly opts: SceneOptions) {
     super({ key: 'arena' });
-    const listen = (x: number, y: number) => {
-      const cam = this.cameras.main;
-      return Math.hypot(x * PX - cam.midPoint.x, y * PX - cam.midPoint.y);
-    };
     this.on = {
-      fired: (x, y, dir, owner) => {
-        const a = radians(dir);
-        const mx = x * PX + Math.cos(a) * 34;
-        const my = y * PX + Math.sin(a) * 34;
-        this.muzzle.setParticleTint(tint(owner));
-        this.muzzle.explode(3, mx, my);
-        this.sounds.play('shot', listen(x, y));
-      },
+      fired: (x, y, dir, owner) => this.fired(x, y, dir, owner),
       bounced: (x, y) => {
         this.sparks.explode(6, x * PX, y * PX);
-        this.sounds.play('ricochet', listen(x, y));
-      },
-      gone: (x, y, hit, owner) => {
-        this.bursts.setParticleTint(hit ? 0xffffff : tint(owner));
-        this.bursts.explode(hit ? 10 : 4, x * PX, y * PX);
-        if (hit) this.sounds.play('hit', listen(x, y));
+        this.sounds.play('ricochet', this.distance(x, y));
       },
     };
+  }
+
+  private silent = false;
+
+  /** Sound on or off — the player's setting; it holds from before the scene has started. */
+  set muted(muted: boolean) {
+    this.silent = muted;
+    if (this.sys.isActive()) this.sounds.muted = muted;
+  }
+
+  /** How far a point is from the camera's centre, units — what a sound is heard from. */
+  private distance(x: number, y: number): number {
+    const cam = this.cameras.main;
+    return Math.hypot(x * PX - cam.midPoint.x, y * PX - cam.midPoint.y);
+  }
+
+  /** A muzzle flash, the shot's sound and the turret's recoil. */
+  private fired(x: number, y: number, dir: number, owner: number): void {
+    const a = radians(dir);
+    this.muzzle.setParticleTint(tint(owner));
+    this.muzzle.explode(3, x * PX + Math.cos(a) * 34, y * PX + Math.sin(a) * 34);
+    this.sounds.play('shot', this.distance(x, y));
+    const t = this.tanks.get(owner);
+    if (t) t.firedAt = this.now;
+  }
+
+  /** What came due: every hit, kill and spawn from the server's word; ends, fizzles, crates. */
+  private show(e: Picture['effects'][number]): void {
+    switch (e.kind) {
+      case 'fire':
+        return this.fired(e.x, e.y, e.dir, e.owner);
+      case 'hit': {
+        this.bursts.setParticleTint(0xffffff);
+        this.bursts.explode(10, e.x * PX, e.y * PX);
+        this.sparks.explode(10, e.x * PX, e.y * PX);
+        this.sounds.play('hit', this.me?.id === e.victim ? 0 : this.distance(e.x, e.y));
+        const t = this.tanks.get(e.victim);
+        if (t) t.hitAt = this.now;
+        return;
+      }
+      case 'kill':
+        this.bursts.setParticleTint(tint(e.victim));
+        this.bursts.explode(36, e.x * PX, e.y * PX);
+        this.sparks.explode(24, e.x * PX, e.y * PX);
+        this.sounds.play('hit', this.distance(e.x, e.y));
+        return;
+      case 'spawn':
+        this.muzzle.setParticleTint(SHIELD);
+        this.muzzle.explode(8, e.x * PX, e.y * PX);
+        return;
+      case 'end':
+        this.bursts.setParticleTint(tint(e.owner));
+        this.bursts.explode(4, e.x * PX, e.y * PX);
+        return;
+      case 'fizzle':
+        this.bursts.setParticleTint(0x8a8a8a);
+        this.bursts.explode(3, e.x * PX, e.y * PX);
+        return;
+      case 'crate': {
+        const spot = this.opts.arena.crates[e.spot];
+        if (spot) this.sparks.explode(12, spot.x * PX, spot.y * PX);
+        return;
+      }
+    }
   }
 
   create(): void {
@@ -162,6 +220,7 @@ export class ArenaScene extends Phaser.Scene {
     });
     this.world.add([this.muzzle, this.sparks, this.bursts]);
     this.sounds = new Sounds(this);
+    this.sounds.muted = this.silent;
 
     // The minimap: the walls drawn once, the own tank a dot — on a camera of its own that neither
     // scrolls nor zooms.
@@ -212,6 +271,7 @@ export class ArenaScene extends Phaser.Scene {
     const pic = this.opts.picture(began);
     const pass = ++this.pass;
     this.me = pic.me;
+    this.now = began;
 
     if (pic.me) this.drawTank(pic.me, pass, true);
     for (const t of pic.others) this.drawTank(t, pass, false);
@@ -248,6 +308,7 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     this.watch.update(pic.shells, pic.others, pic.me, this.on);
+    for (const e of pic.effects) this.show(e);
 
     const cam = this.cameras.main;
     if (pic.me) {
@@ -277,16 +338,25 @@ export class ArenaScene extends Phaser.Scene {
     if (!s) {
       s = this.spareTanks.pop() ?? this.newTank();
       s.id = t.id;
-      const color = tint(t.id);
-      s.hull.setTint(color);
-      s.turret.setTint(color);
+      s.firedAt = -1e9;
+      s.hitAt = -1e9;
       this.tanks.set(t.id, s);
     }
     s.pass = pass;
     const x = t.x * PX;
     const y = t.y * PX;
+    const a = radians(t.turret);
+    const kick = RECOIL * Math.exp(-Math.max(0, this.now - s.firedAt) / RECOIL_MS);
     s.hull.setVisible(t.alive).setPosition(x, y).setRotation(radians(t.hull));
-    s.turret.setVisible(t.alive).setPosition(x, y).setRotation(radians(t.turret));
+    s.turret
+      .setVisible(t.alive)
+      .setPosition(x - Math.cos(a) * kick, y - Math.sin(a) * kick)
+      .setRotation(a);
+    const flash = this.now - s.hitAt < FLASH_MS;
+    const mode = flash ? Phaser.TintModes.FILL : Phaser.TintModes.MULTIPLY;
+    const color = flash ? 0xffffff : tint(t.id);
+    s.hull.setTint(color).setTintMode(mode);
+    s.turret.setTint(color).setTintMode(mode);
     // The ring: the spawn shield's glow, or a faint mark on the own tank.
     const ring = t.alive && (t.shield || mine);
     s.ring.setVisible(ring);
@@ -317,7 +387,7 @@ export class ArenaScene extends Phaser.Scene {
     turret.setOrigin(0.5, 0.5);
     const ring = this.add.image(0, 0, ATLAS, 'ring').setScale(scale);
     this.world.add([hull, turret, ring]);
-    return { id: -1, hull, turret, ring, pass: 0 };
+    return { id: -1, hull, turret, ring, pass: 0, firedAt: -1e9, hitAt: -1e9 };
   }
 
   private newShell(): ShellSprite {

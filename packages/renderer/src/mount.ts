@@ -15,6 +15,8 @@ export interface ArenaView {
   pointerFromMe(): { x: number; y: number } | null;
   /** Frames drawn so far, and the last one's work, ms. */
   stats(): { frames: number; workMs: number };
+  /** Sound on or off. */
+  setMuted(muted: boolean): void;
   destroy(): void;
 }
 
@@ -64,6 +66,9 @@ export function mountArena(opts: MountOptions): ArenaView {
     game,
     pointerFromMe: () => scene.pointerFromMe(),
     stats: () => ({ frames: scene.frames, workMs: scene.workMs }),
+    setMuted: (muted) => {
+      scene.muted = muted;
+    },
     destroy: () => {
       window.removeEventListener('resize', resize);
       game.destroy(true);
