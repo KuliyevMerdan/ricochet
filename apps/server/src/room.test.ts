@@ -61,18 +61,26 @@ describe('Room', () => {
     expect(p.queue).toHaveLength(RULES.inputQueueMax);
   });
 
-  it('holds the stick through a late input, but not the trigger', () => {
+  it('stands a tank still through a late input, holding neither stick nor trigger (D15)', () => {
     const room = new Room(1, 1, 0);
     const p = room.add('Ann', 't', peer().p);
-    room.tick(); // let the spawn shield… not matter: we check shells only after it ends
-    for (let i = 0; i < RULES.shield; i++) room.tick();
-    room.input(p, input(1, { fire: true, move: 0 }));
+    for (let i = 0; i <= RULES.shield; i++) room.tick();
+    const aim = room.world.tanks[0]?.hull ?? 0; // a fresh tank faces the open middle
+    room.input(p, input(1, { fire: true, move: aim, aim }));
     room.tick();
     const fired = room.world.shells.length;
-    const x = room.world.tanks[0]?.x ?? 0;
-    for (let i = 0; i < 20; i++) room.tick(); // no inputs arrive
+    const pose = () => {
+      const t = room.world.tanks[0];
+      return [t?.x, t?.y, t?.hull, t?.turret];
+    };
+    const after = pose();
+    for (let i = 0; i < 5; i++) room.tick(); // no inputs arrive
+    expect(pose()).toEqual(after); // not one eighth further, not one direction turned
+    expect(fired).toBe(1);
     expect(room.world.shells.filter((s) => s.owner === p.id).length).toBeLessThanOrEqual(fired);
-    expect(room.world.tanks[0]?.x).not.toBe(x); // still driving
+    room.input(p, input(2, { move: aim, aim }));
+    room.tick();
+    expect(pose()).not.toEqual(after); // and drives on when the next one comes
   });
 
   it('fast-forwards a shell by the shooter’s measured half round trip (ADR-0002)', () => {

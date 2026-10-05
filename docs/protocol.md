@@ -120,9 +120,10 @@ invalid name as `MALFORMED`; the server answers it with `NAME`.
 `move` is meaningful only with `moving` set; without it, its bits must be 0. One input per client
 tick. The server applies a socket's inputs one per tick in `seq` order and reports the last it
 applied as every snapshot's `ack`. An input whose `seq` is not above the last received is ignored;
-past `inputQueueMax` queued, the oldest is dropped. **When none has arrived for a tick**, the server
-holds the last one's stick and aim — but not its trigger: a shot the client did not send for that
-tick is a shell it never predicted.
+past `inputQueueMax` queued, the oldest is dropped. **When none has arrived for a tick**, the tank
+stands: the server invents no input (D15). The client predicted every input it sent and nothing
+between them, and a tick of standing still is the one tick that changes nothing it predicted — so a
+late input costs the others a glimpse of a pause, and the client no correction at all.
 
 ### 4.3 `ping` — `0x03`
 
@@ -382,4 +383,5 @@ delay. A square rather than a circle: the screen is a rectangle, and the test is
 | D11 | The arena is in the contract (§ 8.2), for the same reason as the rules (D6). | 2026-10-03 |
 | D12 | A shell spares its own tank until it has bounced; a shield absorbs a shell; a self-kill scores nothing; tanks do not push. | 2026-10-03 |
 | D13 | The server measures each socket's round trip itself, with WebSocket pings (§ 3). The protocol's `ping` is the client's clock sync and nothing else. | 2026-10-03 |
-| D14 | A late input holds the stick, not the trigger (§ 4.2). | 2026-10-03 |
+| D14 | A late input holds the stick, not the trigger (§ 4.2). **Superseded by D15.** | 2026-10-03 |
+| D15 | A tick with no input stands the tank still — no stick held, no trigger (§ 4.2). Holding the stick moved the server's tank a tick the client never predicted: in C0's bench, eleven 120 ms hiccups on the way up gave eight wrong predictions held and none stood. | 2026-10-05 |

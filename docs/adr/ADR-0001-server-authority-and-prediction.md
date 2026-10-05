@@ -1,7 +1,8 @@
 # ADR-0001 — The server decides; your tank is predicted, everyone else interpolated
 
 - **Status:** accepted
-- **Date:** 2026-10-03
+- **Date:** 2026-10-03 · **amended** 2026-10-05 (C0): a late input stands the tank (protocol D15);
+  a prediction stops at another tank where it will be.
 - **Applies to:** `sim`, `protocol`, `netcode`, `apps/server`, `apps/web`.
 
 ## Context
@@ -41,7 +42,9 @@ other tank in the recent past, between two snapshots it actually has.**
   rounds correctly — no `Math.sin`, no `**` — and the world is integers in eighths, the wire's own
   resolution. A browser's prediction and the server's tick therefore agree to the bit, and a
   correction on screen is the server genuinely disagreeing (another tank was in the way, an input
-  arrived late), never two engines rounding differently. Enforced by lint since S0.
+  dropped from a full queue), never two engines rounding differently. Enforced by lint since S0.
+  A late input is not a correction: the server invents no input for a tick with none, the tank
+  stands (protocol D15), and a tick of standing changes nothing the client predicted.
 - **Smoothing.** When a correction moves the tank, the difference between where it was drawn and
   where it now is becomes an offset that decays over ~100 ms. The tank never jumps; it never drifts
   from the truth either, because the truth is what is simulated and only the drawing lags.
@@ -59,9 +62,12 @@ other tank in the recent past, between two snapshots it actually has.**
 - **Everyone else is ~100 ms in the past.** You aim at where a tank was. Slow, visible shells make
   this fair enough (ADR-0002); a hitscan weapon would need the server to rewind targets, which this
   game does not.
-- **Tank against tank is mispredicted by design.** Your client does not know where another tank is
-  *now*, so a push is corrected when the server says so. The plan is not to predict pushing at all
-  and to let the correction be the visible cost (CLAUDE.md § Gaps, decided in C0).
+- **Tank against tank is a guess.** Tanks block and do not push (protocol D12), and your client does
+  not know where another tank is *now*. It stops yours where the other will be — where the newest
+  snapshot has it, carried on along its last step, one step further for a tank that drives before
+  yours in a tick (protocol § 8.1). Decided in C0: with no guess, 44 of 150 contact ticks in a
+  ten-minute run were off by up to a tick's drive; with it, 13 of 999 over eight such runs — a tank
+  turning or setting off under your nose, which no client can know before the server says.
 - **The client carries the simulation.** `netcode` imports `sim`, and the page ships it. That is
   a few kilobytes of integer arithmetic and the reason `sim` must stay pure: a clock or a
   `Math.random` in it would be a correction on every tick.

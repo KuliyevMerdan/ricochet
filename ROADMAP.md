@@ -26,6 +26,9 @@ invariant, and a tank's own inputs replayed through `stepTank` reproduce the ser
 within 1.77 ms of its deadline at p99, every client holding exactly the view it was sent.
 **S4 landed 2026-10-03** — bots that play through views and inputs alone, seated by the server to
 fill a room to 6; the bench: a 12-tank tick 0.11 ms at p99, 1.75 KB/s down to the busiest client.
+**C0 landed 2026-10-05** — `netcode`: ten virtual minutes at 150 ± 40 ms against the real `sim`, the
+prediction the server's to the bit in every tick no other tank could touch; the server stopped
+inventing a late input (protocol D15).
 
 ---
 
@@ -84,7 +87,7 @@ only your own connection.
 | **S2** | `sim` — the world step: tanks, shells, ricochets, damage, respawn, the arena; pure and headless | S1 | ✅ (landed 2026-10-03) |
 | **S3** | `apps/server` — rooms, the tick loop, input queues, snapshots with interest and deltas, clock sync | S2 | ✅ (landed 2026-10-03) |
 | **S4** | `bots` + `tools/bench` — bots that play through inputs alone; tick cost and bytes per client measured | S2 | ✅ (landed 2026-10-03) |
-| **C0** | `netcode` — socket, clock, prediction and reconciliation, the interpolation buffer | S1, S2, S3 | ☐ |
+| **C0** | `netcode` — socket, clock, prediction and reconciliation, the interpolation buffer | S1, S2, S3 | ✅ (landed 2026-10-05) |
 | **C1** | The arena on screen — Phaser scene, generated art, camera, minimap, smoothing | C0 | ☐ |
 | **C2** | Feel — three input schemes, own shells predicted, hits and deaths, the scoreboard | C1 | ☐ |
 | **C3** | The netcode made visible — the server ghost, the debug overlay, the network lab, the kill replay | C2, S3 | ☐ |
@@ -281,6 +284,8 @@ _2–3 days._
       ignored, the oldest dropped past `inputQueueMax`; the last applied `seq` is every snapshot's
       `ack`. **Diverged:** an empty queue holds the last input's stick and aim but **not its
       trigger** (protocol D14) — a repeated shot would be a shell the client never predicted.
+      **Changed at C0** (protocol D15): an empty queue holds nothing, and the tank stands — a held
+      stick was a tick the client's prediction never made.
 - [x] **Snapshots** every tick to every connected player: `sim.view`, `protocol.diff`ed against the
       last view sent on that socket; against nothing for a socket's first and after a resume.
       **Diverged:** the roster follows the `welcome` (the first version sent it from inside the
@@ -361,31 +366,62 @@ frame deflated alone keeps 93 % of its size, so frames stay uncompressed (protoc
 
 _3 days. **No DOM in this package.** The heart of the project._
 
-- [ ] Transport: a socket, the handshake, every frame decoded; the socket, timers and the clock are
-      *handed in*, so the browser, the load tool and the tests run the same code. Connection states
-      as a typed stream: `connecting`, `joining`, `live`, `reconnecting`, `outdated`.
-- [ ] Clock: the server tick estimated from `pong`s (the minimum-RTT sample of a window), so the
-      client's tick runs aligned with the server's, and a drifting estimate is slewed, not jumped.
-- [ ] **Prediction and reconciliation**: each client tick samples an input, gives it a `seq`, sends
+- [x] Transport (2026-10-05): a `Connect` that opens a socket and reports `open`, `message` and
+      `close`, a `Clock` and `Timers` *handed in*, so the browser, the load tool and the tests run
+      the same code; every frame decoded. Connection states as a stream (`onState`): `connecting`,
+      `joining`, `live`, `reconnecting`, `outdated`. **Diverged:** two more — `refused` for `NAME`
+      (ask for another name, do not retry) and `closed`; `FULL` and `RATE` are `reconnecting` after
+      5 s and 1 s; a snapshot not of its base reconnects at once (protocol § 5.2); a dropped socket
+      retries with its token, 250 ms doubling to 4 s.
+- [x] Clock: the server tick estimated from `pong`s — the shortest round trip of the last six — and
+      slewed toward a new estimate at 5 % of a tick a tick, never backward; jumped only past ten
+      ticks out. Five pings 100 ms apart after a welcome, then one every 2 s.
+- [x] **Prediction and reconciliation**: each client tick samples an input, gives it a `seq`, sends
       it, applies it to the own tank through `sim.stepTank`, and keeps it. On a snapshot: drop the
       inputs it acknowledged, set the own tank to the server's, replay the rest. The visible error
-      between the old prediction and the new is kept as an offset that decays over ~100 ms — the
-      tank never jumps, and never drifts from the truth either.
-- [ ] **Interpolation**: every other entity drawn at `serverTick − delay` between the two snapshots
-      around it; the delay adapts to the jitter seen (two snapshot intervals plus the 95th
-      percentile of lateness, within bounds); a snapshot that arrives too late extrapolates at most
-      one tick, then holds.
-- [ ] The picture out: `frame(now) → { me, others, shells, crates, offsets }` — positions for the
-      renderer at the display's rate, between the ticks.
-- [ ] Tests against a fake server running the **real `sim`**, through a link that adds latency,
-      jitter and stalls (a TCP link does not lose or reorder; it stalls — that is what is
-      simulated): every acknowledged input applied once · a stall of 1 s followed by a burst ·
-      a clock that drifts 50 ms a minute.
+      is an offset decaying with a 33 ms time constant (5 % left at 100 ms); a respawn — a change of
+      life, or over two radii — is drawn at once. **Diverged:** (1) the server consumes inputs as
+      they come, so a client tick is the server's clock plus a lead and only the *rate* is the
+      server's; a queue left deep by a stall's burst is shortened by sending one input fewer when
+      even the quickest of five seconds' inputs waited 3 ticks there, and past a round trip and a
+      full queue unacknowledged the client stops sending. (2) **Protocol D15** — the server held a
+      late input's stick, a tick the client never predicted; it now stands the tank, and the
+      prediction is exact through any jitter (`netcode.test.ts` shows both rules on the same link).
+      (3) Tank against tank is predicted after all (the open question below): the own tank stops at
+      another where that one will be — the newest snapshot carried on along its last step, one step
+      further for a lower id, which drives first (§ 8.1).
+- [x] **Interpolation**: every other entity drawn between the two views around `serverTick − delay`;
+      the delay is two snapshot intervals plus the 95th percentile of lateness above the link's
+      least, within 2–12 ticks; past the newest, one tick extrapolated along the last step, then
+      held. The drawn time moves at 90–110 % of the server's while it follows a new delay, never
+      backward. **Diverged:** lateness is measured against the server's clock, so "the newest
+      snapshot expected" is the server's present less the least lateness seen.
+- [x] The picture out: `frame(now) → { tick, me, others, shells, crates, offset, from, to }`.
+      **Diverged:** one `offset` (the own tank's correction), and `from` / `to` — the ticks drawn
+      between, which the test holds to what was received. The own tank is drawn between its last two
+      predicted ticks; shells are flown from their starting conditions with `stepShell`, and a
+      fraction of a tick by `fly`, so a bounce is drawn on its two legs.
+- [x] Tests against a fake server running the **real `sim`** in virtual time, through a link that
+      delays, jitters and stalls each way as TCP does (`src/__fixtures__/net.ts`, `netcode.test.ts`):
+      every input applied once at most, in order · two stalls of 1 s and their bursts · a clock 50 ms
+      a minute fast and slow · D15 against D14 · and the parts alone (`clock`, `prediction`,
+      `timeline`, `client` — states, resume, refusals).
 
 **Done when:** a headless client at 150 ms ± 40 ms drives a scripted route for 10 minutes and its
 predicted tank agrees with the server's after every reconciliation in 100 % of ticks where no other
 tank touched it, and within one unit in 99 % of those where one did; remote tanks are never drawn
-from a snapshot that does not exist.
+from a snapshot that does not exist. **Met 2026-10-05** (`netcode.test.ts`, ten virtual minutes,
+under a second of work): of 17,990 reconciliations judged, **all 17,750** in ticks where no other
+tank came within reach were the server's tank to the bit — hits and deaths among them, since a shell
+strikes after the driving; **194 of 195** where one did were within one unit (191 exact), the worst
+52 eighths; all 45 respawns drawn at once. 35,981 frames, none drawn from a tick the client had not
+received or more than one past its newest; 17,982 inputs applied, none dropped, one tick in ten
+minutes the server's queue ran dry; the clock within 0.53 of a tick; the others 104 ms behind.
+"Touched" is taken as another tank's centre within two radii and a tick's drive each, at that tick
+or the one before. **The contact figure varies by run:** over eight seeds of the same scenario, 986
+of 999 contact ticks within one unit (98.7 %), the worst run 64 of 72 — the own tank following
+another that turns or sets off, which no client can know before the snapshot says; the
+no-contact figure is 100 % in all eight.
 
 ## Block C1 — The arena on screen
 
@@ -458,8 +494,8 @@ _2 days._
 - [ ] Reconnect: a socket dropped mid-fight resumes the same tank within 10 s with nothing replayed
       twice; after 10 s the tank is gone and the client rejoins as new.
 - [ ] A hidden tab: the browser stops its frames and slows its timers, so the client stops sending
-      inputs; the server repeats the last one and then idles the tank; the tab back in view snaps
-      to the truth and resumes prediction.
+      inputs; the server stands the tank (protocol D15); the tab back in view snaps to the truth
+      and resumes prediction.
 - [ ] A slow client: when a socket's `bufferedAmount` grows past a bound, the server skips its
       snapshots (the next is a delta against what it last sent, so nothing breaks) instead of
       queueing them; past a second bound, it closes it.
@@ -501,8 +537,10 @@ network from the lab, and watch their tank stay under their thumb — in under t
 - **Snapshot rate** — 30 Hz is the plan; whether 15 Hz with a longer interpolation delay looks the
   same is measured, not argued. **The bytes were measured at S4:** 15 Hz is 0.93 KB/s against
   1.75 at 30, both far under budget, so the bytes do not argue for it. (C1 decides the look)
-- **Tank against tank** — whether pushing is predicted (it is not, in the plan: the own tank stops
-  at another as the server says, and the correction is the visible cost). (C0)
+- ~~**Tank against tank**~~ — **decided at C0:** tanks block and do not push, and the prediction
+  stops the own tank where the other will be — the newest snapshot carried on along its last step,
+  one step further for a lower id. With no guess, 44 of 150 contact ticks were off by up to a tick's
+  drive; with it, 13 of 999 over eight runs (ADR-0001, amended).
 - ~~**The interest radius**~~ — **decided at S2:** a square, `viewHalf` = 880 units each side of the
   tank (protocol § 8.3).
 - **Gamepad on iOS Safari** — supported or said not to be. (C2)

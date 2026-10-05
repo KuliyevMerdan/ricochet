@@ -26,8 +26,6 @@ export interface Player {
   queue: Input[];
   /** The newest `seq` received — older or repeated ones are ignored. */
   received: number;
-  /** The last input applied: repeated, without its trigger, when the queue runs dry. */
-  last: Input | null;
   /** The last `seq` applied — every snapshot's `ack`. */
   ack: number;
   /** The last view sent on this socket — the next snapshot's baseline (protocol § 5.2). */
@@ -129,7 +127,6 @@ export class Room {
       bot,
       queue: [],
       received: 0,
-      last: null,
       ack: 0,
       sent: null,
       goneAt: null,
@@ -169,7 +166,6 @@ export class Room {
     player.sent = null;
     player.queue = [];
     player.received = 0;
-    player.last = null;
     player.ack = 0;
   }
 
@@ -223,14 +219,14 @@ export class Room {
     const next = p.queue.shift();
     const rtt = p.peer.rttMs();
     const lead = rtt === null ? 0 : Math.round(rtt / 2 / (1000 / RULES.tickHz));
-    if (next) {
-      p.last = next;
-      p.ack = next.seq;
-      return { aim: next.aim, move: next.move, fire: next.fire, seq: next.seq, lead };
+    if (!next) {
+      // A late input is not invented (protocol D15): the tank stands this tick. Its client predicted
+      // every input it sent and nothing between them, and a tick of standing still is the one tick
+      // that changes nothing it predicted — so its prediction stays exact however the link jitters.
+      return null;
     }
-    // A late input: hold the stick and the aim where they were, but not the trigger — a shot the
-    // client did not ask for this tick is a shell it never predicted.
-    return p.last ? { aim: p.last.aim, move: p.last.move, fire: false } : null;
+    p.ack = next.seq;
+    return { aim: next.aim, move: next.move, fire: next.fire, seq: next.seq, lead };
   }
 
   /** One tick: step the world, drop the players whose grace ran out, send every snapshot. */

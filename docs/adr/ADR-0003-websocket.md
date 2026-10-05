@@ -34,8 +34,10 @@ then burst — rather than pretending to be UDP.**
   burst, bounded at `inputQueueMax` (the oldest dropped, the client corrected).
 - **The client is built for stalls:** the interpolation buffer adapts to the lateness it sees, a
   late snapshot extrapolates one tick and then holds, and prediction keeps the own tank responsive
-  through the stall — the inputs reach the server late, and the correction afterwards is the visible
-  cost (C0).
+  into the stall — until a round trip and a full queue of inputs are unacknowledged, past which
+  more would only be dropped, and the tank waits for the link. The inputs reach the server late, in a
+  burst; what the queue cannot keep is the correction afterwards, and the client then sends one input
+  fewer until the queue is short again (C0).
 - **The server does not let a slow socket build a queue:** past a bound of `bufferedAmount`, it
   skips a client's snapshots rather than queueing them, and the next delta is against what it last
   sent (P0).
