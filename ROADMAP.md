@@ -29,6 +29,9 @@ fill a room to 6; the bench: a 12-tank tick 0.11 ms at p99, 1.75 KB/s down to th
 **C0 landed 2026-10-05** — `netcode`: ten virtual minutes at 150 ± 40 ms against the real `sim`, the
 prediction the server's to the bit in every tick no other tank could touch; the server stopped
 inventing a late input (protocol D15).
+**C1 landed 2026-10-05** — the arena in a browser: on a phone profile with the CPU throttled 4×, 12
+tanks and 36 shells at the display's rate, ten minutes with a flat heap, a hidden tab drawing
+nothing; `sim`'s pinned run the same in Chromium, Firefox and WebKit.
 
 ---
 
@@ -88,7 +91,7 @@ only your own connection.
 | **S3** | `apps/server` — rooms, the tick loop, input queues, snapshots with interest and deltas, clock sync | S2 | ✅ (landed 2026-10-03) |
 | **S4** | `bots` + `tools/bench` — bots that play through inputs alone; tick cost and bytes per client measured | S2 | ✅ (landed 2026-10-03) |
 | **C0** | `netcode` — socket, clock, prediction and reconciliation, the interpolation buffer | S1, S2, S3 | ✅ (landed 2026-10-05) |
-| **C1** | The arena on screen — Phaser scene, generated art, camera, minimap, smoothing | C0 | ☐ |
+| **C1** | The arena on screen — Phaser scene, generated art, camera, minimap, smoothing | C0 | ✅ (landed 2026-10-05) |
 | **C2** | Feel — three input schemes, own shells predicted, hits and deaths, the scoreboard | C1 | ☐ |
 | **C3** | The netcode made visible — the server ghost, the debug overlay, the network lab, the kill replay | C2, S3 | ☐ |
 | **P0** | Hardening — reconnect, hidden tabs, slow clients, hostile inputs, load | C2, S3, S4 | ☐ |
@@ -427,19 +430,44 @@ no-contact figure is 100 % in all eight.
 
 _3 days._
 
-- [ ] `apps/web` bootstrap: Vite, one Phaser game, a DOM layer over it (name entry, the connection
-      state, the scoreboard), `netcode` wired. `pnpm dev` runs both.
-- [ ] `packages/renderer`: the arena, tanks (hull and turret as separate sprites, tinted per player),
-      shells, crates and walls from textures **generated at boot** — no shipped art, one atlas —
-      the camera following the own tank with a little lead toward the aim, the minimap.
-- [ ] Rendering at the display's rate from `netcode.frame(now)`: the ticks never drive frames.
-- [ ] Particles and sound kept within a budget: a pooled emitter for muzzle flashes, hits and
-      ricochet sparks; no allocation per frame in steady play.
-- [ ] Phaser's own physics **not used** — the world's physics is `sim`'s. Phaser draws, takes input,
-      runs the camera and the sound.
+- [x] `apps/web` bootstrap (2026-10-05): Vite, one Phaser 4 game, a DOM layer over it (name entry,
+      the connection state, the scoreboard), `netcode` wired through the browser's `WebSocket` on
+      the page's own origin. `pnpm dev` runs both, the workspace built first. **Diverged:** C1 needs
+      something to drive with, so keyboard and mouse came forward from C2 (`KeyboardMouse`); C2
+      adds the sticks and the gamepad behind the same `intent()`.
+- [x] `packages/renderer`: the arena, tanks (hull and turret as separate sprites, tinted per player
+      from twelve hues), shells, crates and walls from textures **generated at boot** — no shipped
+      art, one atlas (a `DynamicTexture` drawn once by a Graphics) — the camera following the own
+      tank with an 80-unit lead toward the aim, eased at any frame rate alike, the minimap on its
+      own camera. **Diverged:** the floor is the clear colour and a grid of lines, not a tiled
+      sprite (`docs/perf/`); the canvas draws at most 2 device pixels per CSS pixel.
+- [x] Rendering at the display's rate from `netcode.frame(now)`: Phaser's `update` asks for the
+      picture at `performance.now()`; the ticks never drive frames.
+- [x] Particles and sound kept within a budget: three pooled emitters (muzzle flashes, ricochet
+      sparks, bursts where a shell ends) capped at 60, 160 and 200 particles; three sounds
+      synthesised at boot into Phaser's audio cache, six at most at once, fainter with distance;
+      sprites pooled by id. **Diverged:** the effects are found by comparing pictures
+      (`ShellWatch`) — a shell new beside its owner, a direction changed, a shell gone near a tank —
+      since `netcode` surfaces no events yet; C2's hits come from the server's.
+- [x] Phaser's own physics **not used** — the world's physics is `sim`'s. Phaser draws, runs the
+      cameras and the sound; the keys are the page's own listeners.
+- [x] **Diverged — the loop sleeps while the tab is hidden.** Phaser 4 marks a hidden game paused
+      and leaves the stopping to the browser's frame timer, which a measurement found still
+      drawing; `mountArena` puts the loop to sleep on `hidden` and wakes it on `visible`.
+- [x] The gap left since S2: `sim`'s pinned 5,000-tick run, bundled as for a page, replayed in
+      three engines (`e2e/determinism.spec.ts`, `pnpm e2e`, CI's `engines` job) — Chromium and
+      WebKit end in hash `68b4d373` here; Firefox would not download on this machine's link, and CI
+      runs all three.
 
 **Done when:** 12 tanks and 36 shells hold 60 fps on a 4×-throttled mobile profile, memory is flat
-across 10 minutes of play, and an idle background tab draws nothing.
+across 10 minutes of play, and an idle background tab draws nothing. **Met 2026-10-05**
+(`pnpm --filter @ricochet/web perf`, [`docs/perf/`](docs/perf/README.md); Chromium as a 375 × 812
+phone at DPR 3, the CPU throttled 4×, an Apple M4 Pro's GPU): the stress page's 12 tanks and 36
+shells drew 2,401 frames in 20 s at the display's 120 Hz, **none over 25 ms**, the loop's work 2.0
+ms at p99; ten minutes against eleven bots, 72,095 frames, none over 25 ms, the heap after a forced
+GC **7.38 MB at the start and 7.64 at the end**, never above 8.31; the page made hidden drew **0
+frames** in 3 s and resumed after. On SwiftShader — no GPU, a bound below any phone — the stress
+page ran at 62 fps with 8 of 1,244 frames over 25 ms; a real phone is P1's.
 
 ## Block C2 — Feel
 
@@ -534,9 +562,10 @@ network from the lab, and watch their tank stay under their thumb — in under t
 ## Open questions — each decided in the block named
 
 - ~~**Phaser 3 or 4**~~ — **decided at S0: Phaser 4** (4.2.1, the stable release on 2026-10-03), pinned in the catalog.
-- **Snapshot rate** — 30 Hz is the plan; whether 15 Hz with a longer interpolation delay looks the
-  same is measured, not argued. **The bytes were measured at S4:** 15 Hz is 0.93 KB/s against
-  1.75 at 30, both far under budget, so the bytes do not argue for it. (C1 decides the look)
+- ~~**Snapshot rate**~~ — **decided at C1: 30 Hz.** The page draws between snapshots at the
+  display's rate either way, so the motion looks the same; what 15 Hz changes is the interpolation
+  delay — two intervals, 133 ms instead of 66, the others that much further in the past to aim at —
+  to save 0.8 KB/s (S4) the 6 KB/s budget does not need ([`docs/perf/`](docs/perf/README.md)).
 - ~~**Tank against tank**~~ — **decided at C0:** tanks block and do not push, and the prediction
   stops the own tank where the other will be — the newest snapshot carried on along its last step,
   one step further for a lower id. With no guess, 44 of 150 contact ticks were off by up to a tick's

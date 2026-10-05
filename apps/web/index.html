@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1b1f24" />
+    <title>Ricochet</title>
+  </head>
+  <body>
+    <div id="stage"></div>
+    <div id="hud">
+      <ol id="scores" aria-label="Scoreboard"></ol>
+      <p id="state" role="status" hidden></p>
+      <button id="reload" type="button" hidden>Reload</button>
+    </div>
+    <form id="join" hidden>
+      <h1>Ricochet</h1>
+      <p>Every shell bounces once. Drive with WASD, aim with the mouse, click to fire.</p>
+      <label for="name">Your name</label>
+      <input
+        id="name"
+        name="name"
+        maxlength="48"
+        autocomplete="nickname"
+        spellcheck="false"
+        required
+      />
+      <button type="submit">Play</button>
+      <p id="join-note" role="alert"></p>
+    </form>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

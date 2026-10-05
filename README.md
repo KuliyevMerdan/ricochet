@@ -5,13 +5,14 @@ drive. Top-down and twin-stick: the hull goes where you steer, the turret where 
 shell bounces off a wall once. Node + TypeScript on the server, Phaser in the browser, one WebSocket
 carrying a binary protocol.
 
-> ⚠️ **Status (2026-10-05): the server and the client's netcode run, nothing on screen yet.**
-> **S0–S4** and **C0** have landed — the workspace and its enforced boundaries; the wire protocol,
+> ⚠️ **Status (2026-10-05): the arena plays in a browser, with no feel yet.**
+> **S0–S4**, **C0** and **C1** have landed — the workspace and its enforced boundaries; the wire protocol,
 > its three ADRs, exact integer geometry and a binary codec; the simulation; the server, which has
 > held a room of 12 socket clients for five minutes, every tick within 2 ms of its deadline; bots and
 > the bench; and the client's netcode, whose prediction matched the server's to the bit in every one
-> of 17,750 ticks no other tank touched, over ten simulated minutes at 150 ± 40 ms. See
-> [`ROADMAP.md`](ROADMAP.md) — the arena on screen (**C1**) is next.
+> of 17,750 ticks no other tank touched, over ten simulated minutes at 150 ± 40 ms; and the page,
+> Phaser drawing the arena from generated art at the display's rate on a throttled phone profile.
+> `pnpm dev` runs it. See [`ROADMAP.md`](ROADMAP.md) — feel (**C2**) is next.
 
 ## What makes it interesting to build
 

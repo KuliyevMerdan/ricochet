@@ -3,30 +3,26 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "build:perf": "vite build --mode perf --outDir dist-perf",
+    "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --config ../../config/vitest.package.ts"
+    "test": "vitest run --config ../../config/vitest.package.ts",
+    "perf": "node scripts/perf.mjs"
   },
   "dependencies": {
     "@ricochet/netcode": "workspace:*",
     "@ricochet/renderer": "workspace:*",
     "@ricochet/protocol": "workspace:*",
-    "@ricochet/geom": "workspace:*"
+    "@ricochet/geom": "workspace:*",
+    "phaser": "catalog:"
   },
   "devDependencies": {
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "vite": "catalog:",
+    "@playwright/test": "catalog:"
   }
 }

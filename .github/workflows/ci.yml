@@ -44,3 +44,27 @@ jobs:
 
       - name: Formatting
         run: pnpm run format:check
+
+  # CLAUDE.md § The invariant that makes prediction exact, measured where a player runs it: the
+  # soak's pinned 5,000-tick run replayed in Chromium (V8), Firefox (SpiderMonkey) and WebKit
+  # (JavaScriptCore), each required to end in the same world (`e2e/determinism.spec.ts`).
+  engines:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Browsers
+        run: pnpm exec playwright install --with-deps chromium firefox webkit
+
+      - name: The pinned run in three engines
+        run: pnpm run e2e

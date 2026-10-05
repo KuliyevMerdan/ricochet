@@ -5,8 +5,8 @@ repository.
 
 ## Project status
 
-> ⚠️ **S0–S4 and C0 have landed; nothing on screen yet.** **S0 landed 2026-10-03**: the pnpm +
-> Turborepo workspace of ten units, strict TypeScript with no DOM and no Node unless a unit opts in,
+> ⚠️ **S0–S4, C0 and C1 have landed: the arena plays in a browser, with no feel yet.** **S0 landed
+> 2026-10-03**: the pnpm + Turborepo workspace of ten units, strict TypeScript with no DOM and no Node unless a unit opts in,
 > the dependency graph as dependency-cruiser allow-lists, purity and exactness as ESLint rules — all
 > *proven to fire* against deliberately illegal fixtures — and CI running `pnpm check`. **S1 landed
 > 2026-10-03**: the wire contract and three ADRs; `geom` — the world as integers in eighths, a
@@ -26,7 +26,13 @@ repository.
 > `stepTank` and reconciled with every snapshot, everyone else interpolated behind an adaptive
 > delay; ten virtual minutes at 150 ± 40 ms against the real `sim`, the prediction the server's to
 > the bit in all 17,750 ticks no other tank could have touched. On the way the server stopped
-> inventing a late input (protocol D15). **C1** (the arena on screen) is next.
+> inventing a late input (protocol D15). **C1 landed 2026-10-05**: the page — Vite, one Phaser 4
+> game drawing `netcode.frame(now)` at the display's rate, a DOM layer for the name, the
+> connection and the scoreboard; the arena from textures generated at boot into one atlas, pooled
+> sprites, particles and synthesised sounds. On a phone profile with the CPU throttled 4×, twelve
+> tanks and thirty-six shells drew at the display's rate with 2 ms of work a frame at p99; ten
+> minutes of play left the heap flat; a hidden tab drew nothing. `sim`'s pinned run gave the same
+> hash in Chromium and WebKit, and CI replays it in Firefox too. **C2** (feel) is next.
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -94,11 +100,12 @@ player sees a correction that no latency caused. So `sim` and `geom` use only op
 rounds correctly — `+ - * /` and `Math.sqrt` — and a direction is a lookup in `geom`'s committed
 table of 1,024, never `Math.sin`. The world is quantised to the wire's precision at the end of every
 tick, so a client replaying from a snapshot runs the server's own computation, not an approximation
-of it. Enforced by lint since S0 (§ Purity and exactness).
+of it. Enforced by lint since S0 (§ Purity and exactness), and measured since C1: the soak's pinned
+5,000-tick run ends in the same world in Chromium, Firefox and WebKit (`pnpm e2e`).
 
 ### Packages
 
-All ten exist since **S0**; seven are written. The right-hand column is the block that fills each.
+All ten exist since **S0**; nine are written. The right-hand column is the block that fills each.
 
 | Package | Responsibility | Block |
 | --- | --- | --- |
@@ -107,9 +114,9 @@ All ten exist since **S0**; seven are written. The right-hand column is the bloc
 | `packages/sim` | the room, one tick at a time: `step(world, commands) → { world, events }` — timers and respawn, driving, firing, flight, crates, in that order ([`docs/protocol.md`](docs/protocol.md) § 8.1); `createWorld`, `join`, `leave`. `stepTank(tank, command, arena, obstacles)` — **the prediction's entry point**, the hull turning or reversing toward the stick and the move taken along x then y as far as it is free; `stepShell` — a shell's flight with no tanks, what a client runs on the shells it holds; `fly` / `flyTick` with tanks, sparing the owner until the bounce. `view(world, viewer, events, ack)` — **the one door to the wire**: a square of `viewHalf`, the viewer's timers, events filtered by § 6. A world is plain data — integers, booleans, arrays — and its randomness a mulberry32 state inside it. Returns events; never emits. Pure and exact | ✅ S2 |
 | `packages/bots` | `decide(view, memory) → { input, memory }` — a bot is handed the view a player in its seat holds and answers with a player's input; its memory goes back to the caller, so it is replayable. `createBot(id, arena, seed, skill)`; `SKILLS` — `spread`, the deliberate aim error in directions (12 / 24 / 40), and whether it banks. Targets the nearest tank it can hurt, a crate at its last hit point, else wanders. `nav.ts`: a 32-unit grid built once per arena (`gridOf`, in a `WeakMap`), Dijkstra distance fields shared between bots (`fieldTo`), `waypoint` — the furthest cell down the field it can drive straight to, 4 units clear of walls. `aim.ts`: `ahead` — where a target will be when the shell arrives, the firing tick included (§ 8.1); `trace` — a shell's two legs flown with `geom` as the server flies them; `shotAt` — straight, else off the wall face whose reflection lands it, clear of its own tank. Pure, not exact: an input may be computed with `atan2` | ✅ S4 |
 | `packages/netcode` | `Client` — **no DOM**: a `Connect` (opens a socket, reports `open` / `message` / `close`), a `Clock` and `Timers` are handed in, so the page, the load tool and the tests run the same code. The handshake and the states as a stream (`onState`: `connecting`, `joining`, `live`, `reconnecting`, `outdated`, `refused`, `closed`); every frame decoded, an unreadable one `outdated`, a snapshot not of its base a fresh socket at once; a dropped socket retried with the token, 250 ms doubling to 4 s. `ServerClock` — pongs, the shortest round trip of the last six believed, slewed at 5 % (jumped past 10 ticks). Inputs one a client tick on the server's clock plus a lead, sampled from `intent`, sent, predicted and kept; past a round trip and a full queue unacknowledged they stop; the lead drops a tick when even the quickest of five seconds' inputs waited 3 ticks on the server. `Prediction` — `stepTank` on every input, the acknowledged dropped and the rest replayed from each snapshot's tank, stopping at other tanks where they will be (`Mover`: the last step carried on, one further for a lower id); a correction an offset decaying with a 33 ms time constant, a respawn drawn at once. `Timeline` — views by tick, three seconds kept; the others drawn at the server's clock less the link's least lateness less a delay of 2 ticks plus the 95th percentile of the rest, 2–12; the drawn time never backward, never past a tick beyond the newest view. `frame(now)` — the own tank between its last two predicted ticks plus the offset; the others between two views, or a tick past the newest along their last step; shells flown from their starting conditions with `stepShell`, a fraction of a tick by `fly`; crates | ✅ C0 |
-| `packages/renderer` | the arena in Phaser: textures generated at boot, hull and turret, shells, crates, walls, the camera with a lead toward the aim, the minimap, pooled particles. **No protocol** — it draws pictures | C1 |
+| `packages/renderer` | the arena in Phaser 4, handed a `Picture` a frame — its own types, eighths and 1,024ths, **no protocol**: it draws pictures. `mountArena(parent, arena, picture)` → `ArenaView` (`pointerFromMe`, `stats`, `destroy`): one WebGL game, the canvas at up to 2 device pixels per CSS pixel, its loop asleep while the tab is hidden. `ArenaScene` — the floor as the clear colour and a grid of lines, the walls one Graphics, crates; tanks a hull and a turret tinted by id (`palette.tint`, twelve hues) with a ring for the shield and the own tank, pooled by id; shells pooled; three particle emitters (muzzle, sparks, bursts) with hard caps; the camera on the own tank at `zoomFor` — at most 640 units from its centre — easing an 80-unit lead toward the aim (`CameraRig`); the minimap on a second camera that neither scrolls nor zooms. `buildAtlas` — every frame drawn once with a Graphics into one `DynamicTexture` at twice world size. `ShellWatch` — muzzle flashes, ricochets and shells' ends found by comparing pictures, records reused. `Sounds` — shot, ricochet and hit synthesised into Phaser's audio cache, fainter with distance, six at most | ✅ C1 |
 | `apps/server` | Fastify for `/health` and `/ready` (the tick's lateness and work at p99 among its numbers); `ws` for the game at `/play`. `Ticker` — one drift-free 30 Hz loop for every room, deadlines from the first tick, sleeping to just short of each and spinning the rest on `setImmediate`. `Room` — a world, its players' input queues (one a tick in `seq` order; a tick with none stands the tank — protocol D15), a snapshot a tick to each player diffed against the last sent on its socket, the roster, the resume grace, the fast-forward `lead` from the socket's round trip; its bots — players with no socket, each deciding from `sim.view` every tick, filled to `botsFillTo` (`RICOCHET_BOTS`), the newest leaving as a person arrives. `Lobby` — the fullest room with a seat, by people not tanks, `FULL` past the limit, tokens, idle rooms closed. `Connection` — one socket's protocol: `hello` first, refusals as `VERSION` / `NAME` / `MALFORMED` / `RATE`, `pong`s. `sockets.ts` — the `ws` wiring and the WebSocket-level pings that measure each socket's round trip. `Room`, `Lobby` and `Connection` know no socket | ✅ S3 · S4 |
-| `apps/web` | Vite, one Phaser game, a DOM layer (name, connection state, scoreboard, overlay); three input schemes; own shells predicted; the server ghost, the overlay, the network lab, the kill replay | C1 · C2 · C3 |
+| `apps/web` | Vite (`vite.config.ts` proxies `/play` to the server; `RICOCHET_SERVER`), `index.html` and `main.ts`: the name (`ui.askName`, `validName`, remembered), a `netcode` client on the page's own origin (`socket.ts` — the browser's `WebSocket`, `performance.now`, `setTimeout`), `KeyboardMouse` — WASD or the arrows, the aim from the own tank to the pointer, click or Space to fire — and the arena mounted with a picture from `client.frame(now)` each frame; the DOM over the canvas: the connection's state, `outdated`'s reload, the scoreboard's top five and the own place. `?stress` draws C1's worst case with no server (`stress.ts`); `scripts/perf.mjs` measures it (`docs/perf/`). `window.__ricochet` holds the view and the client for the scripts. Still to come: two more input schemes and own shells (C2), the ghost, overlay, lab and replay (C3) | ✅ C1 · C2 · C3 |
 | `tools/bench` | `BotRoom` — a room of bots on `sim` with no server; `bench` — the server's tick (`step`, then a view, a diff and an encode per tank) and the bots timed apart, at p50 / p99; bytes down per client with framing and roster, delta and whole, 30 Hz and 15, deflated alone and in context. `pnpm bench` runs 6, 12 and 24 tanks, writes [`docs/bench/results.md`](docs/bench/results.md), and fails over budget | ✅ S4 |
 | `tools/load` | headless clients through `netcode`, played by `bots`, over the wire against a running server — tick, bandwidth, corrections, reconnects, to `docs/load/` | P0 |
 
@@ -207,7 +214,7 @@ package — and `netcode`, which must run in the browser, in Node and in a test 
 | Bots | the grid open at every spawn and crate and in one piece; a straight-driven point following waypoints from every spawn to every crate and spawn, never touching a wall; lead, the straight shot, the bank shot round a post and none without leave; `decide` firing within its spread, holding fire while reloading, shielded or out of shells, circling, going for a crate, wandering, working loose, pure · in 10 minutes of a bot-only room every bot scores and every bot dies, under a quarter of deaths self-inflicted (`tools/bench`) | ✅ S4 |
 | Bench | `pnpm bench`: a 12-tank tick 0.112 ms at p99 (under 1 ms) and 1.75 KB/s to the busiest client (under 6 KB/s) on one laptop — [`docs/bench/`](docs/bench/README.md) | ✅ S4 |
 | Netcode | the clock — the quickest pong believed, slewed and never backward, jumped past ten ticks; the prediction — only the unacknowledged replayed, a correction decaying, a respawn snapped, another tank met where it will be; the timeline's delay, its hold through a stall and catch-up; the client's states — hello, welcome, a resumed socket with its token and `seq` from 1, a snapshot not of its base, `VERSION` / `MALFORMED` / an unreadable frame, `NAME`, `FULL`, `RATE` · against a server stepping the real `sim` in virtual time, through a link that delays, jitters and stalls as TCP does (`netcode.test.ts`): 10 minutes at 150 ± 40 ms — the prediction the server's to the bit in all 17,750 ticks no other tank could touch, within one unit in 194 of 195 where one could, every respawn snapped, 35,981 frames none drawn from a snapshot not held; two 1 s stalls — every input applied once at most, in order, exact again in 3 s; a clock 50 ms a minute fast and slow — within a tick of the server's, no input dropped; protocol D15 against D14 | ✅ C0 |
-| Browser | 60 fps at 12 tanks and 36 shells on a throttled phone profile, flat memory, an idle hidden tab drawing nothing; no predicted shell shown hitting a tank the server says it missed | C1 · C2 |
+| Browser | the camera's zoom and frame-rate-independent lead, the palette, `ShellWatch`'s effects and reuse; the keyboard's stick, the scoreboard's places, the stress picture · `pnpm --filter @ricochet/web perf` ([`docs/perf/`](docs/perf/README.md)): on a 375 × 812 phone profile, the CPU throttled 4×, 12 tanks and 36 shells at 120 Hz with 0 frames over 25 ms and 2.0 ms of loop work at p99; 10 minutes live, 72,095 frames, none over 25 ms, the heap 7.4 → 7.6 MB; hidden, 0 frames · `pnpm e2e` (`e2e/determinism.spec.ts`): the soak's pinned run, bundled for a page, ends in hash `68b4d373` in Chromium, Firefox and WebKit (Firefox in CI) · C2: no predicted shell shown hitting a tank the server says it missed | ✅ C1 · C2 |
 | Load | 240 clients for 30 minutes — every tick on time at p99, under the bandwidth budget, every resume finding its tank | P0 |
 | E2E | Playwright: two browsers in one room see each other, one kills the other, the lab's latency, a resumed socket | P1 |
 
@@ -231,6 +238,9 @@ pnpm check
 | `pnpm test:root` | `tests/` — the rules proven against `config/fixtures/`, the direction table held to its generator (needs `python3`, standard library only), and the protocol document held to the code |
 | `pnpm format` | Prettier. Markdown is excluded: the canon is hand-wrapped |
 | `pnpm bench` | `tools/bench`: rooms of 6, 12 and 24 bots, five minutes each — rewrites `docs/bench/results.md`; fails over S4's budget. Not in `check`: it measures the machine (`--ticks N` for another length) |
+| `pnpm dev` | the server (tsx watch, :8080) and the page (Vite, :5173, `/play` proxied to the server), the workspace built first |
+| `pnpm e2e` | Playwright (`e2e/`): the soak's pinned run in Chromium, Firefox and WebKit. CI's `engines` job, beside `check` |
+| `pnpm --filter @ricochet/web perf` | C1's done-when in a throttled phone profile — stress, hidden, ten live minutes (`RICOCHET_PERF_MINUTES`); needs `pnpm build`. Not in `check`: it measures the machine |
 
 The server on its own: `pnpm --filter @ricochet/server dev` (tsx watch, port 8080; `PORT`,
 `HOST`, `RICOCHET_MAX_ROOMS`, `RICOCHET_PING_MS`, `RICOCHET_BOTS` — a room's bot fill, 0 for none —
@@ -250,18 +260,14 @@ AI agent, and this file is where the repository's guidance lives.
 Log what you hit here as you hit it ([Rule 1](#rule-1--log-the-gaps-you-hit)). Open at time of
 writing — the questions [`ROADMAP.md`](ROADMAP.md) leaves to a block:
 
-- **Snapshot rate.** 30 Hz is the plan; whether 15 Hz with a longer interpolation delay looks the
-  same is C1's to decide. The bytes were measured at S4: 0.93 KB/s against 1.75, both far under the
-  6 KB/s budget, so the bytes do not argue for it.
-- **Cross-engine determinism, shown.** `sim` is exact by construction and lint, and the soak pins a
-  5,000-tick run to a hash — but only in V8. C1 replays that run in Chromium, Firefox and WebKit
-  (Playwright) and requires the same hash; until then "the same in every engine" is argued, not
-  measured.
 - **The input queue on a rough link.** `inputQueueMax` is 4, and TCP delivers a delayed input
   together with every one behind it: at 150 ± 80 ms the bursts dropped 9 inputs in ten minutes, at
   300 ± 100 ms 22 — each a correction (C0's bench). Whether the queue deepens or the client spaces
   its sends is P0's, with the load tool's real links.
 - **Gamepad on iOS Safari.** Supported, or said not to be. C2.
+- **A real phone.** C1's frames were measured in a phone's profile on a desktop GPU, and bounded
+  below on SwiftShader (62 fps in the stress run, 8 of 1,244 frames over 25 ms) — a phone's GPU lies
+  between the two. P1's live demo is measured on a real device.
 - **Toolchain majors held back.** TypeScript 7, Vitest 5, ESLint 10 and dependency-cruiser 18 were
   out at S0; the workspace pins the majors the three sibling projects run on (TypeScript 5,
   Vitest 3, ESLint 9, dependency-cruiser 16), so a break is never two problems at once. Move them

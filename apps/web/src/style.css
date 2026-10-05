@@ -1,0 +1,148 @@
+:root {
+  color-scheme: dark;
+  --ink: #e8edf2;
+  --muted: #9aa7b4;
+  --panel: rgb(20 24 29 / 82%);
+  --accent: #4fc3f7;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1b1f24;
+  color: var(--ink);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+#stage,
+#stage canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+#hud {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+  pointer-events: none;
+}
+
+#scores {
+  margin: 0;
+  padding: 6px 10px 6px 28px;
+  min-width: 140px;
+  background: var(--panel);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+#scores:empty {
+  display: none;
+}
+
+#scores li {
+  display: list-item;
+}
+
+#scores li span {
+  display: inline-block;
+  min-width: 96px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+#scores li b {
+  float: right;
+  margin-left: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+#scores li.me {
+  color: var(--accent);
+}
+
+#state {
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+#reload {
+  pointer-events: auto;
+}
+
+#join {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(340px, calc(100% - 32px));
+  height: fit-content;
+  padding: 20px 22px;
+  display: grid;
+  gap: 10px;
+  background: var(--panel);
+  border-radius: 12px;
+}
+
+#join h1 {
+  margin: 0;
+  font-size: 26px;
+  letter-spacing: 0.04em;
+}
+
+#join p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+#join input,
+#join button,
+#reload {
+  font: inherit;
+  font-size: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #3a4350;
+  background: #11151a;
+  color: var(--ink);
+}
+
+#join button,
+#reload {
+  background: var(--accent);
+  color: #0b1218;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#join-note:empty {
+  display: none;
+}
+
+[hidden] {
+  display: none !important;
+}
