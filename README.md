@@ -20,7 +20,9 @@ it, off its wall._
 ## Try to break it
 
 1. **Drive.** WASD or the arrows, the mouse to aim, click or Space to fire — or two thumb sticks on
-   a phone, or a gamepad. Bank a shot off a wall.
+   a phone, or a gamepad (the left stick drives, the right aims, A or the right trigger fires).
+   Bank a shot off a wall. _A gamepad is tested in desktop Chromium only: on an iPhone or iPad,
+   Safari's Gamepad API has not been tried with a real controller._
 2. **Open the lab** (_Netcode lab_, bottom left) and tick **Server ghost**: an outline of where the
    server last had every tank. Over yours it trails behind — your tank is ahead of the server by a
    round trip; over the others it leads — they are drawn a little in the past. Tick **Network

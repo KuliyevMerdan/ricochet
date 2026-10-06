@@ -294,8 +294,8 @@ writing — the questions [`ROADMAP.md`](ROADMAP.md) leaves to a block:
 
 - **Gamepad on iOS Safari.** The pad is read through the Gamepad API's standard mapping, which
   Safari has supported since iOS 13 for the controllers Apple lists — and it was tested here only
-  as a stand-in pad in Chromium. P1's real device says whether it works, or the README says it
-  does not.
+  as a stand-in pad in Chromium. The live demo was checked on an iPhone with touch only, so the
+  README says the pad on iOS is untested; a real controller on the device closes this.
 - **Toolchain majors held back.** TypeScript 7, Vitest 5, ESLint 10 and dependency-cruiser 18 were
   out at S0; the workspace pins the majors the three sibling projects run on (TypeScript 5,
   Vitest 3, ESLint 9, dependency-cruiser 16), so a break is never two problems at once. Move them
