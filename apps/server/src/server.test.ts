@@ -23,6 +23,7 @@ const server = createServer({
     maxRooms: 5,
     pingMs: 250,
     bots: RULES.botsFillTo,
+    lab: false,
     logLevel: 'silent',
   },
   logger: false,

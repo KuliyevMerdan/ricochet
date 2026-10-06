@@ -76,3 +76,41 @@ shows the effect.
   where the server's shell will be (ADR-0002) — and its fast-forward counts the input's wait in the
   queue (protocol D16). What the 100 ms cap leaves over, the client eases its shell back by before
   the adoption: at 150 ms the step fell from 34 units to 1.5.
+
+# The netcode made visible — ROADMAP C3
+
+`pnpm build && pnpm --filter @ricochet/web lab` ([`apps/web/scripts/lab.mjs`](../../apps/web/scripts/lab.mjs))
+serves the built page beside the built server with the network lab on (`RICOCHET_LAB=on`) and six
+bots, and drives the page in Chromium **through its DOM only**, as a stranger would: the name, the
+lab's button, the ghost's box, the 300 ms preset, the prediction's box. No proxy: the latency is the
+lab's own, added on the server's side of the page's socket (protocol § 3.1). A key trial starts from
+a standing tank just after a frame and counts the frames until the own tank is drawn moved; held on,
+it measures how far the own ghost is drawn from the own tank.
+
+## Results — 2026-10-06, Apple M4 Pro, Chromium 1234, 120 Hz
+
+| | |
+| --- | --- |
+| From the page's load to the last switch: join, the lab, the ghost, 300 ms, twelve keys | **14.3 s** |
+| The round trip the page measured once 300 ms was added | 303 ms |
+| A key to the own tank drawn moved — prediction on | **1 frame** in 4 of 4 |
+| … prediction off | **43–44 frames** (≈360 ms: the round trip and the interpolation delay) |
+| … prediction on again | **1 frame** in 4 of 4 |
+| The own ghost while driving — prediction on | 55–59 units **behind** the drawn tank |
+| … prediction off | 15 units **ahead** — the own tank interpolated, 66 ms behind the newest view |
+| Stall 2 s: the longest gap between snapshots | 2,017 ms, then every held one in order |
+| Drop socket: back, live, on the same tank | 266 ms (`reconnecting` → `connecting` → `joining` → `live`, resumed); the lab on the new socket, 303 ms |
+| A death: the replay | shown, 2.7 s of views, the fatal shell traced to **0.1 units** of the tank's edge |
+
+## What was decided from them
+
+- **The input cap reads the newest round trip as well as the least.** The clock believes the least
+  of twelve seconds of pongs, and the cap — a round trip of inputs and a full queue — read the same
+  number: after the lab added 300 ms the client held its own inputs back for twelve seconds, the
+  overlay showing six inputs ahead where ten were in flight, the tank stuttering. A lab change also
+  re-syncs the clock with five quick pings, so the overlay's round trip is the link's within half a
+  second.
+- **The buffer's depth is carried on between frames.** Measured at the last frame's drawn time, a
+  page drawing once a second — a background pane — showed the buffer swinging between 100 and
+  560 ms; carried on at the server's clock it is the same however often the page draws.
+

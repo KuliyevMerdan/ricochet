@@ -1,13 +1,17 @@
 import type { Client } from '@ricochet/netcode';
 import { RULES } from '@ricochet/protocol';
 import type { GameEvent, RosterEntry, View } from '@ricochet/protocol';
+import { History, SAMPLE_HZ, drawGraph } from './graph.js';
+import type { KillReplay } from './replay.js';
 import type { Settings } from './settings.js';
 import { saveSettings } from './settings.js';
 
 /**
- * The DOM over the arena that C2 adds: the kill feed, the death screen — who did it and the count
- * to the respawn — the settings, and a small network overlay (C3 grows it). Names are the roster's,
- * set as text: a name is never markup.
+ * The DOM over the arena: the kill feed, the death screen — who did it and the count to the
+ * respawn — and the kill replay it starts (C3), the settings, and the network overlay: the round
+ * trip and its jitter, the interpolation delay and the buffer's depth, the inputs unacknowledged,
+ * the corrections a second and their size, the bytes each way, the tick, and a graph of the last
+ * ten seconds (C3). Names are the roster's, set as text: a name is never markup.
  */
 
 const $ = <T extends HTMLElement>(sel: string, ctor: new () => T): T => {
@@ -41,7 +45,14 @@ export class Hud {
   private readonly death = $('#death', HTMLElement);
   private readonly deathBy = $('#death-by', HTMLElement);
   private readonly deathIn = $('#death-in', HTMLElement);
-  private readonly overlay = $('#overlay', HTMLPreElement);
+  private readonly overlay = $('#overlay', HTMLDivElement);
+  private readonly overlayText = $('#overlay-text', HTMLPreElement);
+  private readonly graph = $('#overlay-graph', HTMLCanvasElement);
+  private readonly history = new History();
+  private lastSample = { at: 0, corrected: 0 };
+  private lastFixes = { corrections: 0, corrected: 0 };
+  private fixRate = 0;
+  private fixSize = 0;
   /** Who killed the own tank last, while it is dead. */
   private killer: number | null = null;
   private lastFrames = 0;
@@ -50,14 +61,22 @@ export class Hud {
   private lastBytes = { in: 0, out: 0, at: 0 };
   private rate = { in: 0, out: 0 };
 
-  constructor(private readonly client: Client) {
+  constructor(
+    private readonly client: Client,
+    private readonly replay: KillReplay,
+  ) {
     client.onEvents((events) => this.events(events));
   }
 
   private events(events: readonly GameEvent[]): void {
     for (const e of events) {
       if (e.type !== 'kill') continue;
-      if (e.victim === this.client.you) this.killer = e.killer;
+      if (e.victim === this.client.you) {
+        this.killer = e.killer;
+        // The newest view held is the death's: the replay is the three seconds up to it.
+        const r = this.client.replay();
+        if (r) this.replay.play(r, nameOf(this.client.roster, e.killer));
+      }
       const line = killLine(this.client.roster, e.killer, e.victim);
       const li = document.createElement('li');
       const text = (tag: 'b' | 'span', t: string) => {
@@ -96,9 +115,21 @@ export class Hud {
       this.deathIn.textContent = `Back in ${Math.max(1, Math.ceil(view.self.respawn / RULES.tickHz))}`;
     } else {
       this.killer = null;
+      if (this.replay.playing && this.replay.done(now)) this.replay.stop();
     }
 
     this.overlay.hidden = !settings.overlay;
+    if (now - this.lastSample.at >= 1000 / SAMPLE_HZ) {
+      const st = this.client.stats();
+      this.history.push({
+        rttMs: st.rttMs,
+        delayMs: st.delayMs,
+        bufferMs: st.bufferMs,
+        fixUnits: Math.max(0, st.corrected - this.lastSample.corrected) / 8,
+      });
+      this.lastSample = { at: now, corrected: st.corrected };
+      if (settings.overlay) drawGraph(this.graph, this.history);
+    }
     if (now - this.lastAt >= 500) {
       const dt = (now - this.lastAt) / 1000;
       if (this.lastAt) this.fps = (frames - this.lastFrames) / dt;
@@ -110,27 +141,42 @@ export class Hud {
         };
       }
       this.lastBytes = { in: st.bytesIn, out: st.bytesOut, at: now };
+      if (this.lastAt) {
+        const n = st.corrections - this.lastFixes.corrections;
+        this.fixRate = n / dt;
+        this.fixSize = n > 0 ? (st.corrected - this.lastFixes.corrected) / n / 8 : 0;
+      }
+      this.lastFixes = { corrections: st.corrections, corrected: st.corrected };
       this.lastFrames = frames;
       this.lastAt = now;
       if (settings.overlay) {
         const s = st.shots;
-        this.overlay.textContent = [
-          `rtt      ${st.rttMs === null ? '—' : `${Math.round(st.rttMs)} ms`}`,
-          `delay    ${Math.round(st.delayMs)} ms`,
-          `unacked  ${st.unacked}`,
-          `fixes    ${st.corrections}`,
+        const modes = this.client.modes;
+        const faults = this.client.labFaults;
+        this.overlayText.textContent = [
+          `rtt      ${st.rttMs === null ? '—' : `${Math.round(st.rttMs)} ms`} · jitter ${Math.round(st.jitterMs)} ms`,
+          `interp   ${modes.interpolate ? `${Math.round(st.delayMs)} ms behind` : 'off'} · ${Math.round(st.bufferMs)} ms held`,
+          `predict  ${modes.predict ? `${st.unacked} inputs ahead, lead ${st.lead}` : 'off'}`,
+          `fixes    ${this.fixRate.toFixed(1)}/s · ${this.fixSize.toFixed(1)} u each`,
           `shots    ${s.predicted} → ${s.adopted} adopted, ${s.fizzled} fizzled`,
-          `step     ${(s.stepMean / 8).toFixed(1)} u mean`,
           `in/out   ${this.rate.in.toFixed(1)} / ${this.rate.out.toFixed(1)} KB/s`,
-          `fps      ${Math.round(this.fps)}`,
+          `tick     ${st.tick ?? '—'} · ${Math.round(this.fps)} fps`,
+          ...(faults.latencyMs || faults.jitterMs
+            ? [`lab      +${faults.latencyMs} ms ± ${faults.jitterMs} ms`]
+            : []),
         ].join('\n');
       }
     }
   }
 }
 
-/** The settings panel: a button opens it; every change applies at once and is remembered. */
-export function settingsPanel(initial: Settings, apply: (s: Settings) => void): void {
+/** The settings panel: a button opens it; every change applies at once and is remembered. The
+ * overlay's box sits in the lab's panel and is remembered here. Returns how to close it. */
+export function settingsPanel(
+  initial: Settings,
+  apply: (s: Settings) => void,
+  opening: () => void,
+): { close(): void } {
   const panel = $('#settings', HTMLFormElement);
   const open = $('#settings-open', HTMLButtonElement);
   const sound = $('#set-sound', HTMLInputElement);
@@ -142,6 +188,7 @@ export function settingsPanel(initial: Settings, apply: (s: Settings) => void): 
   size.value = initial.stickSize;
   side.value = initial.moveSide;
   open.onclick = () => {
+    if (panel.hidden) opening();
     panel.hidden = !panel.hidden;
   };
   panel.onsubmit = (e) => {
@@ -159,5 +206,11 @@ export function settingsPanel(initial: Settings, apply: (s: Settings) => void): 
     saveSettings(s);
     apply(s);
   };
+  overlay.onchange = panel.onchange;
   apply(initial);
+  return {
+    close: () => {
+      panel.hidden = true;
+    },
+  };
 }

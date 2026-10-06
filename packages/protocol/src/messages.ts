@@ -8,7 +8,13 @@ import { encodeUtf8 } from './utf8.js';
 /** Bumped on any change to a message's bytes. The first two bytes of `hello` never change. */
 export const PROTOCOL_VERSION = 1;
 
-export const CLIENT_MESSAGES = { hello: 0x01, input: 0x02, ping: 0x03 } as const;
+export const CLIENT_MESSAGES = {
+  hello: 0x01,
+  input: 0x02,
+  ping: 0x03,
+  lab: 0x04,
+  stall: 0x05,
+} as const;
 
 export const SERVER_MESSAGES = {
   welcome: 0x81,
@@ -30,6 +36,10 @@ export const TOKEN_BYTES = 16;
 /** A name's limits: code points, and its encoding's bytes. */
 export const NAME_MAX_CHARS = 16;
 export const NAME_MAX_BYTES = 48;
+
+/** The network lab's bounds (docs/protocol.md § 4.8–4.9): latency added to the round trip, ms;
+ * jitter on top of it, ms; a stall's length, ms. */
+export const LAB_LIMITS = { latencyMs: 1000, jitterMs: 500, stallMs: 5000 } as const;
 
 // ── client → server ──────────────────────────────────────────────────────────────────────────────
 
@@ -59,7 +69,26 @@ export interface Ping {
   readonly id: number;
 }
 
-export type ClientMessage = Hello | Input | Ping;
+/**
+ * The network lab (C3): the sender's own link made worse, on the server's side of the socket — so
+ * the server's own measure of the round trip sees it, as it would a real one. Nobody else's link is
+ * touched. Applied only by a server with the lab enabled; another ignores it.
+ */
+export interface Lab {
+  readonly type: 'lab';
+  /** Added to the round trip, half each way. */
+  readonly latencyMs: number;
+  /** Up to this much more on each frame, drawn afresh per frame — never reordering two. */
+  readonly jitterMs: number;
+}
+
+/** The sender's link frozen both ways for `ms`, then everything it held delivered, in order. */
+export interface Stall {
+  readonly type: 'stall';
+  readonly ms: number;
+}
+
+export type ClientMessage = Hello | Input | Ping | Lab | Stall;
 
 // ── server → client ──────────────────────────────────────────────────────────────────────────────
 

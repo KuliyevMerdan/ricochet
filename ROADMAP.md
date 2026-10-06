@@ -35,6 +35,9 @@ nothing; `sim`'s pinned run the same in Chromium, Firefox and WebKit.
 **C2 landed 2026-10-06** — feel: three input schemes, own shells predicted and adopted, hits only
 from the server; at 150 ms a key and a press each on the next frame, and 649 hits drawn in ten
 minutes, every one the server's (protocol D16).
+**C3 landed 2026-10-06** — the netcode made visible: the server ghost, the overlay and its graph,
+a network lab on the server's side of the visitor's own socket (protocol D17), prediction and
+interpolation switchable off, the kill replay; a stranger's steps through the page took 14 s.
 
 ---
 
@@ -520,22 +523,48 @@ stand-in gamepad each drove and fired. In `netcode`'s own ten minutes at 150 ± 
 
 _2 days. This is what a stranger opens the demo to see._
 
-- [ ] **The server ghost**: a toggle that draws, over the own predicted tank, an outline where the
-      server last said it was, and over every remote tank where its newest snapshot puts it — the
-      prediction ahead, the interpolation behind, both on screen.
-- [ ] **The overlay**: round trip and jitter, the interpolation delay and the buffer's depth,
-      unacknowledged inputs, corrections per second and their size, bytes per second each way,
-      the tick. A graph of the last ten seconds.
-- [ ] **The network lab**, per connection on the server as in the earlier projects — so a dropped
+- [x] **The server ghost** (2026-10-06): a toggle that draws, over the own predicted tank, an outline
+      where the server last said it was, and over every remote tank where its newest snapshot puts
+      it — the prediction ahead, the interpolation behind, both on screen. At 300 ms the own ghost
+      trails a driving tank by 55–59 units; with the prediction off it is 15 units *ahead* — the
+      own tank then interpolated like everyone else.
+- [x] **The overlay**: round trip and jitter, the interpolation delay and the buffer's depth,
+      unacknowledged inputs and the lead, corrections per second and their size, bytes per second
+      each way, the tick, the lab's settings; a graph of the last ten seconds — the round trip, the
+      delay and the buffer as lines, the corrections as bars. **Diverged:** the round trip shown is
+      the newest pong's, not the clock's least of twelve seconds — and the lab found the input cap
+      reading that least too: after adding 300 ms the client held its own inputs back for twelve
+      seconds, the tank stuttering. The cap takes the newest as well now, and a lab change re-syncs
+      the clock with five quick pings.
+- [x] **The network lab**, per connection on the server as in the earlier projects — so a dropped
       reply or a stall is real, and a live demo's lab breaks only the visitor's own link: add
-      latency, add jitter, stall for 2 s, drop the socket. Prediction and interpolation switchable
-      off, so the difference is felt, not explained.
-- [ ] **The kill replay**: on death, the last 3 seconds from the client's own snapshot history,
-      slowed, with the shell's path and its bounce drawn — the server's truth, not the prediction.
-- [ ] A short "how this works" panel linking the ADRs.
+      latency (0 / 100 / 300 / 600 ms), add jitter (0 / 50 / 150 ms), stall for 2 s, drop the
+      socket. Prediction and interpolation switchable off, so the difference is felt, not
+      explained. **Diverged:** (1) two client messages, `lab` and `stall` (protocol D17), into a
+      `Link` of two lanes per socket that delay and bunch frames and never lose or reorder one —
+      and the server's WebSocket pings go through them, so its own round trip, which the
+      fast-forward reads, sees the lab's latency; a ping carries its id, and a socket is dead after
+      10 s unanswered, not five missed pings, which a 5 s stall would trip. (2) The drop is no
+      message: the page lets go of its own end, the one close a proxy passes on (the crash project's
+      P1), and the client comes back onto the same tank and sends the lab again. (3)
+      `RICOCHET_LAB`: on in development, opt-in in production.
+- [x] **The kill replay**: on death, the last 3 seconds from the client's own snapshot history, at
+      half speed, with the shell's path and its bounce drawn — the server's truth, not the
+      prediction. The bounce and the hit are found by `sim.fly` itself: the least distance at which
+      the flight bounces, or reaches the tank. **Diverged:** it plays on a canvas of its own, framed
+      on the death, the killer and the path, not in the arena — six seconds at half speed outlive a
+      three-second respawn, and the player is driving again by then.
+- [x] A short "how this works" panel linking the ADRs and the protocol.
 
 **Done when:** a stranger can turn on the ghost, add 300 ms in the lab, switch prediction off and
-on, and see the difference in their own tank in under a minute.
+on, and see the difference in their own tank in under a minute. **Met 2026-10-06**
+(`pnpm --filter @ricochet/web lab`, [`docs/perf/`](docs/perf/README.md); the built page and server
+with bots, Chromium driving the page through its DOM only): from the page's load, the name, the lab,
+the ghost and 300 ms, then four keys with the prediction on, four with it off and four on again, in
+**14 s**. A key drew the own tank moved on the **next frame** with the prediction on (8 of 8), and
+after **43–44 frames** at 120 Hz — the round trip and the interpolation delay — with it off. A 2 s
+stall held the snapshots 2,017 ms; a drop came back onto the same tank in 266 ms with the lab on the
+new socket; a death showed its replay, the fatal shell traced to 0.1 units of the tank's edge.
 
 ---
 

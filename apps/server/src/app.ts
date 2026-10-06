@@ -45,7 +45,13 @@ export function createServer({ config, logger = true, observe }: ServerOptions):
   });
   ticker = new Ticker(() => lobby.tick(), systemTickerClock(now), RULES.tickHz);
   const t = ticker;
-  const sockets = createSockets(lobby, { now, phase: () => t.phase() }, app.log, config.pingMs);
+  const sockets = createSockets(
+    lobby,
+    { now, phase: () => t.phase() },
+    app.log,
+    config.pingMs,
+    config.lab,
+  );
 
   app.get('/health', async () => ({ ok: true }));
   app.get('/ready', async (_req, reply) => {
@@ -79,7 +85,7 @@ export function createServer({ config, logger = true, observe }: ServerOptions):
     async listen() {
       const address = await app.listen({ host: config.host, port: config.port });
       t.start();
-      app.log.info({ address, env: config.env }, 'listening');
+      app.log.info({ address, env: config.env, lab: config.lab }, 'listening');
       return address;
     },
     async close() {

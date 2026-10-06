@@ -6,6 +6,8 @@ import { WebSocketServer } from 'ws';
 import type { RawData, WebSocket } from 'ws';
 import { Connection } from './connection.js';
 import type { ConnectionClock, Socket } from './connection.js';
+import { Link } from './link.js';
+import type { LaneTimers } from './link.js';
 import type { Lobby } from './lobby.js';
 
 export interface Sockets {
@@ -14,11 +16,12 @@ export interface Sockets {
   readonly size: number;
 }
 
-/** A socket's round-trip measurement: the ping in flight, pings missed in a row, recent samples. */
+/** A socket's round-trip measurement: the pings in flight by id, with when each was sent, and
+ * the recent samples. */
 interface Probe {
-  sentAt: number | null;
-  missed: number;
-  rtts: number[];
+  next: number;
+  readonly sent: Map<number, number>;
+  readonly rtts: number[];
 }
 
 /** The close code the server ends a connection with — 4000s are the application's to define. */
@@ -29,69 +32,105 @@ const HELLO_WITHIN_MS = 5000;
 const MAX_FRAME = 256;
 /** Round-trip samples kept per socket; the median of them is the socket's round trip. */
 const RTT_SAMPLES = 5;
+/** A socket whose oldest ping has gone unanswered this long has died without saying so — longer
+ * than the lab's worst: a 5 s stall on a 2 s round trip (protocol § 3, § 4.9). */
+const DEAD_MS = 10_000;
 
 /**
  * The `ws` transport. Each socket is pinged at the WebSocket level every `pingMs` — answered by the
  * browser itself, below any JavaScript — and the answers are the server's own measure of that
- * socket's round trip, which ADR-0002's fast-forward reads. A socket that leaves five pings
- * unanswered has died without saying so and is terminated.
+ * socket's round trip, which ADR-0002's fast-forward reads. Each ping carries its id, so a round
+ * trip longer than the interval is still measured against its own ping. A socket that leaves a ping
+ * unanswered for `DEAD_MS` has died without saying so and is terminated.
+ *
+ * With `lab`, each socket runs through a `Link` of its own (docs/protocol.md § 3.1): its frames,
+ * both ways, and its pings and their answers, so the measured round trip includes what the lab
+ * adds. A clean link delivers at once.
  */
 export function createSockets(
   lobby: Lobby,
   clock: ConnectionClock,
   log: FastifyBaseLogger,
   pingMs: number,
+  lab = false,
 ): Sockets {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME });
-  const probes = new WeakMap<WebSocket, Probe>();
+  const pingers = new WeakMap<WebSocket, () => void>();
+  const timers: LaneTimers = {
+    after(ms, fn) {
+      const t = setTimeout(fn, ms);
+      return () => clearTimeout(t);
+    },
+  };
 
-  const pinger = setInterval(() => {
-    for (const ws of wss.clients) {
-      const p = probes.get(ws);
-      if (!p) continue;
-      if (p.sentAt !== null && ++p.missed >= 5) {
-        ws.terminate();
-        continue;
-      }
-      p.sentAt = clock.now();
-      ws.ping();
-    }
+  const beat = setInterval(() => {
+    for (const ws of wss.clients) pingers.get(ws)?.();
   }, pingMs);
-  pinger.unref();
+  beat.unref();
 
   wss.on('connection', (ws: WebSocket) => {
-    const probe: Probe = { sentAt: null, missed: 0, rtts: [] };
-    probes.set(ws, probe);
-    ws.on('pong', () => {
-      if (probe.sentAt === null) return;
-      probe.rtts.push(clock.now() - probe.sentAt);
-      if (probe.rtts.length > RTT_SAMPLES) probe.rtts.shift();
-      probe.sentAt = null;
-      probe.missed = 0;
+    const link = lab ? new Link(clock, timers, Math.random) : null;
+    const down = (fn: () => void) => (link ? link.toClient(fn) : fn());
+    const up = (fn: () => void) => (link ? link.fromClient(fn) : fn());
+    const open = () => ws.readyState === ws.OPEN;
+
+    const probe: Probe = { next: 0, sent: new Map(), rtts: [] };
+    const ping = () => {
+      const oldest = probe.sent.values().next();
+      if (!oldest.done && clock.now() - oldest.value > DEAD_MS) {
+        ws.terminate();
+        return;
+      }
+      const id = (probe.next = (probe.next + 1) >>> 0);
+      probe.sent.set(id, clock.now());
+      const data = Buffer.alloc(4);
+      data.writeUInt32LE(id);
+      down(() => {
+        if (open()) ws.ping(data);
+      });
+    };
+    pingers.set(ws, ping);
+    ws.on('pong', (data: Buffer) => {
+      up(() => {
+        if (data.length !== 4) return;
+        const id = data.readUInt32LE(0);
+        const at = probe.sent.get(id);
+        if (at === undefined) return;
+        // In order, as TCP delivers: every ping before this one has been answered too.
+        for (const k of probe.sent.keys()) {
+          probe.sent.delete(k);
+          if (k === id) break;
+        }
+        probe.rtts.push(clock.now() - at);
+        if (probe.rtts.length > RTT_SAMPLES) probe.rtts.shift();
+      });
     });
     // One ping at once, so the first shells a player fires already have a lead to go on.
-    probe.sentAt = clock.now();
-    ws.ping();
+    ping();
 
     const socket: Socket = {
       send(frame) {
-        if (ws.readyState === ws.OPEN) ws.send(frame, { binary: true });
+        down(() => {
+          if (open()) ws.send(frame, { binary: true });
+        });
       },
       close() {
         ws.close(CLOSED_BY_SERVER, 'replaced by another connection');
         setTimeout(() => ws.terminate(), 2000).unref();
       },
       refuse(code) {
-        if (ws.readyState === ws.OPEN)
-          ws.send(encodeServer({ type: 'error', code }), { binary: true });
-        ws.close(CLOSED_BY_SERVER, code);
-        setTimeout(() => ws.terminate(), 2000).unref();
+        down(() => {
+          if (open()) ws.send(encodeServer({ type: 'error', code }), { binary: true });
+          ws.close(CLOSED_BY_SERVER, code);
+          setTimeout(() => ws.terminate(), 2000).unref();
+        });
       },
       rttMs() {
         if (probe.rtts.length === 0) return null;
         const sorted = [...probe.rtts].sort((a, b) => a - b);
         return sorted[Math.floor(sorted.length / 2)] ?? null;
       },
+      link,
     };
     const connection = new Connection(socket, lobby, clock);
     const hello = setTimeout(() => {
@@ -100,10 +139,12 @@ export function createSockets(
     hello.unref();
 
     ws.on('message', (data: RawData, isBinary: boolean) => {
-      connection.receive(isBinary ? bytes(data) : null);
+      const frame = isBinary ? bytes(data) : null;
+      up(() => connection.receive(frame));
     });
     ws.on('close', () => {
       clearTimeout(hello);
+      link?.close();
       connection.closed();
     });
     ws.on('error', (error) => log.warn({ err: error }, 'socket error'));
@@ -114,7 +155,7 @@ export function createSockets(
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     },
     close() {
-      clearInterval(pinger);
+      clearInterval(beat);
       for (const ws of wss.clients) ws.terminate();
       wss.close();
     },

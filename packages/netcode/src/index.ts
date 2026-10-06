@@ -13,6 +13,8 @@ export type {
   ConnectionState,
   Frame,
   Intent,
+  LabFaults,
+  Modes,
   NetStats,
   Socket,
   SocketEvents,
@@ -30,3 +32,5 @@ export { Happenings } from './events.js';
 export { gunStep } from './prediction.js';
 export type { Gun } from './prediction.js';
 export type { ShotStats } from './own.js';
+export { Replay, pointAt } from './replay.js';
+export type { FatalPath, PathPoint, ReplayPicture } from './replay.js';

@@ -3,10 +3,18 @@ import type { ErrorCode } from '@ricochet/protocol';
 import type { Lobby } from './lobby.js';
 import type { Peer, Player, Room } from './room.js';
 
+/** The network lab's hold on a socket (docs/protocol.md § 3.1) — `Link`, on a server with the lab. */
+export interface LabControl {
+  set(faults: { readonly latencyMs: number; readonly jitterMs: number }): void;
+  stall(ms: number): void;
+}
+
 /** What a connection needs of its socket. */
 export interface Socket extends Peer {
   /** Send an `error` and close. */
   refuse(code: ErrorCode): void;
+  /** The socket's lab, or `null` on a server without one — where `lab` and `stall` are ignored. */
+  readonly link: LabControl | null;
 }
 
 export interface ConnectionClock {
@@ -23,9 +31,10 @@ const INPUT_RATE_LIMIT = 2 * RULES.tickHz;
 const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 
 /**
- * One socket's side of the protocol: `hello` first, then inputs and pings. Frames are decoded
- * before they are believed; a malformed one counts against the socket, three close it; a name the
- * rules refuse is `NAME`, a wrong version `VERSION`, a flood of inputs `RATE`.
+ * One socket's side of the protocol: `hello` first, then inputs and pings — and, on a server with
+ * the network lab, `lab` and `stall`, which touch only this socket. Frames are decoded before they
+ * are believed; a malformed one counts against the socket, three close it; a name the rules refuse
+ * is `NAME`, a wrong version `VERSION`, a flood of inputs `RATE`.
  */
 export class Connection {
   private room: Room | null = null;
@@ -113,6 +122,12 @@ export class Connection {
         );
         return;
       }
+      case 'lab':
+        this.socket.link?.set({ latencyMs: msg.latencyMs, jitterMs: msg.jitterMs });
+        return;
+      case 'stall':
+        this.socket.link?.stall(msg.ms);
+        return;
     }
   }
 

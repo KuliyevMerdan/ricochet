@@ -5,7 +5,7 @@ import { decodeClient, decodeServer, validName } from './index.js';
 /** Malformed frames, each one field away from a golden one — refused as values, with a reason. */
 describe('the client decoder refuses', () => {
   it.each([
-    ['an unknown type', '04 00', /unknown client message/],
+    ['an unknown type', '06 00', /unknown client message/],
     ['reserved hello flags', '01 01 02 03 416e6e', /reserved hello flags/],
     ['an overlong UTF-8 name', '01 01 00 02 c080', /not UTF-8/],
     ['a surrogate in a name', '01 01 00 03 eda080', /not UTF-8/],
@@ -17,6 +17,10 @@ describe('the client decoder refuses', () => {
     ['reserved input bits', '02 01000000 00004000', /reserved input bits/],
     ['a move direction without moving', '02 01000000 00040000', /without moving/],
     ['input seq 0', '02 00000000 00000000', /seq 0/],
+    ['lab latency past a second', '04 e903 0000', /latency over 1000/],
+    ['lab jitter past half a second', '04 0000 f501', /jitter over 500/],
+    ['a stall of nothing', '05 0000', /stall not in/],
+    ['a stall past five seconds', '05 8913', /stall not in/],
   ])('%s', (_name, bytes, reason) => {
     const r = decodeClient(hex(bytes));
     expect(r.ok).toBe(false);

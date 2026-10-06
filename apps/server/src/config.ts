@@ -9,6 +9,8 @@ export interface Config {
   readonly pingMs: number;
   /** Bots fill each room to this many tanks. */
   readonly bots: number;
+  /** The network lab (`RICOCHET_LAB`): `lab` and `stall` heard, each on its sender's socket only. */
+  readonly lab: boolean;
   readonly logLevel: string;
 }
 
@@ -24,13 +26,20 @@ export function readConfig(env: Readonly<Record<string, string | undefined>>): C
     }
     return n;
   };
+  const production = env.NODE_ENV === 'production';
+  const lab = env.RICOCHET_LAB;
+  if (lab !== undefined && lab !== '' && lab !== 'on' && lab !== 'off') {
+    problems.push(`RICOCHET_LAB=${lab} is neither on nor off`);
+  }
   const config: Config = {
-    env: env.NODE_ENV === 'production' ? 'production' : 'development',
+    env: production ? 'production' : 'development',
     host: env.HOST ?? '0.0.0.0',
     port: int('PORT', 8080, 0, 65535),
     maxRooms: int('RICOCHET_MAX_ROOMS', 50, 1, 1000),
     pingMs: int('RICOCHET_PING_MS', 1000, 50, 60_000),
     bots: int('RICOCHET_BOTS', RULES.botsFillTo, 0, RULES.roomSize),
+    // On in development; opt-in in production, for the live demo — it breaks only its sender's link.
+    lab: lab === 'on' || ((lab === undefined || lab === '') && !production),
     logLevel: env.LOG_LEVEL ?? 'info',
   };
   if (problems.length > 0) throw new Error(`bad configuration:\n  ${problems.join('\n  ')}`);

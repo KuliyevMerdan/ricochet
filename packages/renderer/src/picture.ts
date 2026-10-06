@@ -61,6 +61,11 @@ export interface Picture {
   readonly effects: readonly EffectPicture[];
   /** Where the player aims, as a direction — the camera leads toward it. `null`: no lead. */
   readonly aim: number | null;
+  /**
+   * The server ghost (C3): outlines of tanks where the newest snapshot puts them, drawn over the
+   * tanks themselves — empty when it is off. The own one is white, the others in their colours.
+   */
+  readonly ghosts: readonly TankPicture[];
 }
 
 /** The arena as the renderer needs it: its side, its walls and its crate spots, in eighths. */

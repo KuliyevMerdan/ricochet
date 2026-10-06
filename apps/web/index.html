@@ -19,11 +19,109 @@
       <p id="death-by"></p>
       <p id="death-in"></p>
     </div>
-    <pre id="overlay" hidden></pre>
+    <figure id="replay" hidden>
+      <canvas id="replay-canvas" aria-label="Replay of your death"></canvas>
+      <figcaption id="replay-caption"></figcaption>
+      <button id="replay-close" type="button" aria-label="Close the replay">×</button>
+    </figure>
+    <div id="overlay" hidden>
+      <pre id="overlay-text"></pre>
+      <canvas id="overlay-graph" aria-hidden="true"></canvas>
+      <p class="legend">
+        <span class="rtt">round trip</span> <span class="delay">delay</span>
+        <span class="buffer">buffer</span> <span class="fix">fixes</span> · 10 s
+      </p>
+    </div>
     <button id="settings-open" type="button" aria-label="Settings">⚙</button>
+    <button id="lab-open" type="button" aria-expanded="false">Netcode lab</button>
+    <form id="lab" hidden aria-label="Netcode lab">
+      <h2>Netcode lab</h2>
+      <p class="hint">
+        Turn on the ghost, add 300 ms, then switch prediction off and drive. Your link only.
+      </p>
+      <label><input id="lab-ghost" type="checkbox" /> Server ghost</label>
+      <label><input id="lab-predict" type="checkbox" checked /> Prediction</label>
+      <label><input id="lab-interpolate" type="checkbox" checked /> Interpolation</label>
+      <label><input id="set-overlay" type="checkbox" /> Network overlay</label>
+      <fieldset>
+        <legend>Added latency</legend>
+        <label><input type="radio" name="latency" value="0" checked /> 0</label>
+        <label><input type="radio" name="latency" value="100" /> 100</label>
+        <label><input type="radio" name="latency" value="300" /> 300</label>
+        <label><input type="radio" name="latency" value="600" /> 600 ms</label>
+      </fieldset>
+      <fieldset>
+        <legend>Jitter</legend>
+        <label><input type="radio" name="jitter" value="0" checked /> 0</label>
+        <label><input type="radio" name="jitter" value="50" /> 50</label>
+        <label><input type="radio" name="jitter" value="150" /> 150 ms</label>
+      </fieldset>
+      <div class="row">
+        <button id="lab-stall" type="button">Stall 2 s</button>
+        <button id="lab-drop" type="button">Drop socket</button>
+      </div>
+      <div class="row">
+        <button id="lab-how" type="button">How this works</button>
+        <button type="submit">Done</button>
+      </div>
+    </form>
+    <article id="how" hidden aria-label="How this works">
+      <button id="how-close" type="button" aria-label="Close">×</button>
+      <h2>How this works</h2>
+      <ol>
+        <li>
+          <b>The server decides everything.</b> It steps the world 30 times a second from everyone's
+          inputs — a direction, an aim, a trigger, never a position.
+          <a
+            href="https://github.com/KuliyevMerdan/ricochet/blob/main/docs/adr/ADR-0001-server-authority-and-prediction.md"
+            target="_blank"
+            rel="noopener"
+            >ADR-0001</a
+          >
+        </li>
+        <li>
+          <b>Your tank is predicted.</b> The page runs the server's own simulation on your input at
+          once and corrects it when the server answers. The white ghost is where the server last
+          said you were: the gap is your latency, hidden.
+        </li>
+        <li>
+          <b>Everyone else is interpolated</b> about 100 ms in the past, between two snapshots that
+          both arrived. Their ghosts are the newest snapshot: ahead of them, not behind.
+        </li>
+        <li>
+          <b>Shells are fast-forwarded, not targets rewound.</b> Your shell starts on the server
+          where your screen drew it, and only the server says what it hit.
+          <a
+            href="https://github.com/KuliyevMerdan/ricochet/blob/main/docs/adr/ADR-0002-shells-fast-forwarded.md"
+            target="_blank"
+            rel="noopener"
+            >ADR-0002</a
+          >
+        </li>
+        <li>
+          <b>The wire is bytes</b> on one WebSocket: snapshots as deltas, each shell sent once and
+          flown by the same code on both ends.
+          <a
+            href="https://github.com/KuliyevMerdan/ricochet/blob/main/docs/adr/ADR-0003-websocket.md"
+            target="_blank"
+            rel="noopener"
+            >ADR-0003</a
+          >
+          ·
+          <a
+            href="https://github.com/KuliyevMerdan/ricochet/blob/main/docs/protocol.md"
+            target="_blank"
+            rel="noopener"
+            >protocol</a
+          >
+        </li>
+      </ol>
+      <p class="hint">
+        The lab makes your own link worse on the server's side of the socket — nobody else's.
+      </p>
+    </article>
     <form id="settings" hidden>
       <label><input id="set-sound" type="checkbox" /> Sound</label>
-      <label><input id="set-overlay" type="checkbox" /> Network overlay</label>
       <label
         >Sticks
         <select id="set-size">

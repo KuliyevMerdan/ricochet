@@ -61,6 +61,12 @@ export class ServerClock {
     return Math.min(...this.samples.map((s) => s.rtt));
   }
 
+  /** The newest pong's round trip, ms — the link as it is now, where `rtt` is the least of the
+   * last twelve seconds; `null` before the first. */
+  latest(): number | null {
+    return this.samples.at(-1)?.rtt ?? null;
+  }
+
   /** The server's present at local time `now`, in ticks. */
   at(now: number): number {
     return now / TICK_MS + this.offsetAt(now);

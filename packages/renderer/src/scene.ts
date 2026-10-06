@@ -26,6 +26,13 @@ interface TankSprites {
   hitAt: number;
 }
 
+/** A server ghost's outlines, kept and reused while its id is in the picture. */
+interface GhostSprites {
+  readonly hull: Phaser.GameObjects.Image;
+  readonly turret: Phaser.GameObjects.Image;
+  pass: number;
+}
+
 interface ShellSprite {
   readonly core: Phaser.GameObjects.Image;
   pass: number;
@@ -56,6 +63,8 @@ export class ArenaScene extends Phaser.Scene {
   private hud!: Phaser.Cameras.Scene2D.Camera;
   private readonly tanks = new Map<number, TankSprites>();
   private readonly spareTanks: TankSprites[] = [];
+  private readonly ghosts = new Map<number, GhostSprites>();
+  private readonly spareGhosts: GhostSprites[] = [];
   private readonly shells = new Map<number, ShellSprite>();
   private readonly spareShells: ShellSprite[] = [];
   private crates: Phaser.GameObjects.Image[] = [];
@@ -282,6 +291,15 @@ export class ArenaScene extends Phaser.Scene {
       this.spareTanks.push(s);
     }
 
+    for (const g of pic.ghosts) this.drawGhost(g, pass, g.id === pic.me?.id);
+    for (const [id, g] of this.ghosts) {
+      if (g.pass === pass) continue;
+      g.hull.setVisible(false);
+      g.turret.setVisible(false);
+      this.ghosts.delete(id);
+      this.spareGhosts.push(g);
+    }
+
     for (const s of pic.shells) {
       let sprite = this.shells.get(s.id);
       if (!sprite) {
@@ -371,6 +389,37 @@ export class ArenaScene extends Phaser.Scene {
     s.hull.setDepth(depth);
     s.turret.setDepth(depth + 0.1);
     s.ring.setDepth(depth + 0.2);
+  }
+
+  /** A tank where the server last said it was: its outline, over everything but the shells. */
+  private drawGhost(t: TankPicture, pass: number, mine: boolean): void {
+    let g = this.ghosts.get(t.id);
+    if (!g) {
+      g = this.spareGhosts.pop() ?? this.newGhost();
+      this.ghosts.set(t.id, g);
+    }
+    g.pass = pass;
+    const color = mine ? 0xffffff : tint(t.id);
+    const x = t.x * PX;
+    const y = t.y * PX;
+    g.hull.setVisible(t.alive).setPosition(x, y).setRotation(radians(t.hull)).setTint(color);
+    g.turret.setVisible(t.alive).setPosition(x, y).setRotation(radians(t.turret)).setTint(color);
+  }
+
+  private newGhost(): GhostSprites {
+    const scale = 1 / DETAIL;
+    const hull = this.add
+      .image(0, 0, ATLAS, 'ghostHull')
+      .setScale(scale)
+      .setAlpha(0.8)
+      .setDepth(2.5);
+    const turret = this.add
+      .image(0, 0, ATLAS, 'ghostTurret')
+      .setScale(scale)
+      .setAlpha(0.8)
+      .setDepth(2.6);
+    this.world.add([hull, turret]);
+    return { hull, turret, pass: 0 };
   }
 
   private hideTank(s: TankSprites): void {

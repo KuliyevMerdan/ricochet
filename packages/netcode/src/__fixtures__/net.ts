@@ -228,7 +228,7 @@ export class FakeServer {
         this.queue.shift();
         this.dropped++;
       }
-    } else {
+    } else if (m.type === 'ping') {
       const since = this.sched.now - this.world.tick * (1000 / RULES.tickHz);
       this.out(
         encodeServer({

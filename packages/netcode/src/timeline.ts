@@ -67,11 +67,27 @@ export class Timeline {
 
   /** How far behind the newest snapshot expected the others are drawn, ticks. */
   delay(): number {
-    if (this.raw.length === 0) return MIN_DELAY;
+    return Math.min(MAX_DELAY, Math.max(MIN_DELAY, 2 + this.jitter()));
+  }
+
+  /** The link's jitter, ticks: the 95th percentile of how late snapshots arrive past the least. */
+  jitter(): number {
+    if (this.raw.length === 0) return 0;
     const least = Math.min(...this.raw);
     const late = this.raw.map((r) => r - least).sort((a, b) => a - b);
-    const p95 = late[Math.min(late.length - 1, Math.ceil(0.95 * late.length) - 1)] ?? 0;
-    return Math.min(MAX_DELAY, Math.max(MIN_DELAY, 2 + p95));
+    return late[Math.min(late.length - 1, Math.ceil(0.95 * late.length) - 1)] ?? 0;
+  }
+
+  /** The buffer's depth at the server's `serverNow`, ticks: how far the newest view held is ahead
+   * of the drawn time, carried on from the last frame's at its own rate. */
+  ahead(serverNow: number): number {
+    const newest = this.views.at(-1);
+    if (!newest || !this.drawn) return 0;
+    const drawn = Math.min(
+      newest.tick + 1,
+      this.drawn.tick + Math.max(0, serverNow - this.drawn.server),
+    );
+    return Math.max(0, newest.tick - drawn);
   }
 
   /** The tick everyone else is drawn at, by the server's clock now, and the views around it. */

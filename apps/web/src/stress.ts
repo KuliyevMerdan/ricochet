@@ -34,6 +34,7 @@ export function stress(size: number): (now: number) => Picture {
     crates: 0b1111,
     effects: [],
     aim: null,
+    ghosts: [],
   };
   const [me, ...others] = tanks;
   picture.me = me ?? null;

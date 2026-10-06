@@ -31,6 +31,13 @@ export const CLIENT_GOLDEN: ReadonlyArray<readonly [string, ClientMessage, strin
     '02 02010000 ff033400',
   ],
   ['ping', { type: 'ping', id: 0x1234 }, '03 3412'],
+  [
+    'lab, 300 ms and 40 ms of jitter',
+    { type: 'lab', latencyMs: 300, jitterMs: 40 },
+    '04 2c01 2800',
+  ],
+  ['lab, a clean link', { type: 'lab', latencyMs: 0, jitterMs: 0 }, '04 0000 0000'],
+  ['stall, two seconds', { type: 'stall', ms: 2000 }, '05 d007'],
 ];
 
 export const SERVER_GOLDEN: ReadonlyArray<readonly [string, ServerMessage, string]> = [

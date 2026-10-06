@@ -5,6 +5,9 @@ import { mountArena } from '@ricochet/renderer';
 import type { ArenaView, Picture } from '@ricochet/renderer';
 import { Hud, settingsPanel } from './hud.js';
 import { Controls } from './input/controls.js';
+import { LAB_START, labPanel } from './lab.js';
+import type { LabState } from './lab.js';
+import { KillReplay } from './replay.js';
 import { loadSettings } from './settings.js';
 import type { Settings } from './settings.js';
 import { browserClock, browserSocket, browserTimers, playUrl } from './socket.js';
@@ -23,6 +26,16 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 const $ = (id: string): HTMLElement => {
   const el = document.getElementById(id);
   if (!el) throw new Error(`the page has no #${id}`);
+  return el;
+};
+const canvasOf = (id: string): HTMLCanvasElement => {
+  const el = $(id);
+  if (!(el instanceof HTMLCanvasElement)) throw new Error(`#${id} is not a canvas`);
+  return el;
+};
+const buttonOf = (id: string): HTMLButtonElement => {
+  const el = $(id);
+  if (!(el instanceof HTMLButtonElement)) throw new Error(`#${id} is not a button`);
   return el;
 };
 const stage = $('stage');
@@ -56,7 +69,15 @@ async function play(name: string): Promise<void> {
     peek: () => controls.peek(),
   });
   hooks.client = client;
-  const hud = new Hud(client);
+  const replay = new KillReplay(
+    $('replay'),
+    canvasOf('replay-canvas'),
+    $('replay-caption'),
+    arena,
+    buttonOf('replay-close'),
+  );
+  const hud = new Hud(client, replay);
+  let lab: LabState = LAB_START;
 
   const picture: Mutable<Picture> = {
     me: null,
@@ -65,6 +86,7 @@ async function play(name: string): Promise<void> {
     crates: 0,
     effects: [],
     aim: null,
+    ghosts: [],
   };
   const draw = (now: number): Picture => {
     const f: Frame = client.frame(now);
@@ -74,6 +96,7 @@ async function play(name: string): Promise<void> {
     picture.crates = f.crates;
     picture.effects = f.effects;
     picture.aim = f.me ? f.me.turret : null;
+    picture.ghosts = lab.ghost ? f.ghosts : [];
     hooks.picture = picture;
     if (f.effects.length > 0) hooks.effects?.push(f.effects);
     hud.update(now, client.latest, view?.stats().frames ?? 0, settings);
@@ -82,11 +105,31 @@ async function play(name: string): Promise<void> {
   view = mountArena({ parent: stage, arena, picture: draw });
   hooks.view = view;
 
-  settingsPanel(settings, (s) => {
-    settings = s;
-    view?.setMuted(!s.sound);
-    controls.configure(s.stickSize, s.moveSide);
-  });
+  let closeLab = () => {};
+  const settingsUi = settingsPanel(
+    settings,
+    (s) => {
+      settings = s;
+      view?.setMuted(!s.sound);
+      controls.configure(s.stickSize, s.moveSide);
+    },
+    () => closeLab(),
+  );
+  labPanel(
+    {
+      apply: (s) => {
+        lab = s;
+        client.modes = s.modes;
+        client.lab(s.faults);
+      },
+      stall: (ms) => client.stall(ms),
+      drop: () => client.drop(),
+    },
+    () => settingsUi.close(),
+  );
+  closeLab = () => {
+    $('lab').hidden = true;
+  };
 
   client.onState((s) => {
     showState(s);

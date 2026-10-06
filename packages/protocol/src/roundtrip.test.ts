@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  LAB_LIMITS,
   RULES,
   apply,
   decodeClient,
@@ -49,7 +50,7 @@ function event(): GameEvent {
 }
 
 function clientMessage(): ClientMessage {
-  switch (int(0, 2)) {
+  switch (int(0, 4)) {
     case 0:
       return {
         type: 'hello',
@@ -65,6 +66,14 @@ function clientMessage(): ClientMessage {
         move: bool() ? dir() : null,
         fire: bool(),
       };
+    case 2:
+      return {
+        type: 'lab',
+        latencyMs: int(0, LAB_LIMITS.latencyMs),
+        jitterMs: int(0, LAB_LIMITS.jitterMs),
+      };
+    case 3:
+      return { type: 'stall', ms: int(1, LAB_LIMITS.stallMs) };
     default:
       return { type: 'ping', id: int(0, 0xffff) };
   }

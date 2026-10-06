@@ -74,7 +74,32 @@ client                                   server
 - **The server's own measure.** The server pings every socket at the WebSocket level once a second —
   a control frame the browser answers itself, below any JavaScript — and takes the median of the
   last five round trips as that socket's. It is what the fast-forward reads (ADR-0002); a client
-  never reports a time it wants believed. A socket that leaves five pings unanswered is closed.
+  never reports a time it wants believed. Each ping carries its own id, so a round trip longer
+  than the interval is measured against its own ping; a socket whose ping goes unanswered for 10 s
+  — longer than the lab's worst, a 5 s stall on a 2 s round trip (§ 3.1) — is closed.
+
+### 3.1 The network lab
+
+`lab` and `stall` make **the sender's own link** worse, the way a real network makes a WebSocket
+worse (D17), so that a stranger on the live demo can feel what the netcode does about it — and touch
+nobody else's link. The server runs each direction of a lab'd socket through a **lane** that never
+loses a frame and never reorders one: each frame waits `latencyMs / 2` plus a fresh draw of up to
+`jitterMs`, but never leaves before the frame ahead of it — TCP delivers in order, so jitter on a
+WebSocket is bunching, not reordering. `stall` shuts both lanes for `ms`, then they deliver what they
+held, in order. Inbound frames are handled when they leave the lane: an input that waited in it has
+not arrived, and the rate limit (§ 7) counts it then.
+
+**The lanes sit on the server's side of the socket, not in the page**, because the server's own
+measure of the round trip (above) must see the lab's latency as it would a real one: its WebSocket
+pings go out through the outbound lane and their answers come back through the inbound one. A delay
+added in the page would leave the browser answering the pings at once, and the fast-forward
+(ADR-0002) would lead the shells by a round trip the client does not have.
+
+The lab is heard only by a server started with `RICOCHET_LAB=on` — the default in development,
+opt-in in production for the live demo; another server decodes the frames and ignores them. The
+lab's settings live on the socket: a client re-sends them after every `welcome`. **Dropping the
+socket** needs no message: the page closes its own end, and a close the browser starts is the one a
+proxy passes on.
 
 ## 4. Messages
 
@@ -83,6 +108,8 @@ client                                   server
 | `hello` | `0x01` | client → server | 4 + name, 20 + name with a token |
 | `input` | `0x02` | client → server | 9 |
 | `ping` | `0x03` | client → server | 3 |
+| `lab` | `0x04` | client → server | 5 |
+| `stall` | `0x05` | client → server | 3 |
 | `welcome` | `0x81` | server → client | 26 |
 | `snapshot` | `0x82` | server → client | 19 at least: a 14-byte head, five counts, their entries (§ 5) |
 | `roster` | `0x83` | server → client | 2 + 6 and a name per entry |
@@ -174,6 +201,25 @@ Sent whole, whenever a player joins or leaves or a score changes.
 | code | `u8` | § 7 |
 
 The server sends it and closes the socket.
+
+### 4.8 `lab` — `0x04`
+
+| Field | Type | |
+| --- | --- | --- |
+| type | `u8` | `0x04` |
+| latencyMs | `u16` | added to the round trip, half each way; `0 … 1000` |
+| jitterMs | `u16` | up to this much more on each frame, each way; `0 … 500` |
+
+Sets the sender's own link (§ 3.1); `0, 0` is a clean one. Each `lab` replaces the last.
+
+### 4.9 `stall` — `0x05`
+
+| Field | Type | |
+| --- | --- | --- |
+| type | `u8` | `0x05` |
+| ms | `u16` | `1 … 5000` |
+
+Freezes the sender's own link both ways for `ms` (§ 3.1).
 
 ## 5. Snapshots — `0x82`
 
@@ -386,3 +432,4 @@ delay. A square rather than a circle: the screen is a rectangle, and the test is
 | D14 | A late input holds the stick, not the trigger (§ 4.2). **Superseded by D15.** | 2026-10-03 |
 | D15 | A tick with no input stands the tank still — no stick held, no trigger (§ 4.2). Holding the stick moved the server's tank a tick the client never predicted: in C0's bench, eleven 120 ms hiccups on the way up gave eight wrong predictions held and none stood. | 2026-10-05 |
 | D16 | A shell's fast-forward is its shooter's half round trip **and the ticks its input waited in the server's queue** (§ 4.2), both the server's own measures, under the same cap. The press is that long before the server fires it; with the half round trip alone, the server's shell started a tick or two behind the one the shooter's prediction drew (C2's bench: 16 units against 6 at 150 ms). | 2026-10-06 |
+| D17 | The network lab is two client messages, applied on the server's side of the sender's own socket, as lanes that delay and bunch frames and never lose or reorder one (§ 3.1). Version 1 grows them rather than becoming 2: no message's bytes changed, and no server of version 1 had been deployed. | 2026-10-06 |

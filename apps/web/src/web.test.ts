@@ -1,6 +1,9 @@
 import type { RosterEntry } from '@ricochet/protocol';
 import { describe, expect, it } from 'vitest';
+import { MIN_HALF, frameFor, replayTick } from './framing.js';
+import { History, SAMPLE_HZ, SECONDS } from './graph.js';
 import { stickOf } from './input/keyboard.js';
+import { msOf } from './lab.js';
 import { stickVector } from './input/touch.js';
 import { DEFAULTS, parseSettings } from './settings.js';
 import { killLine } from './hud.js';
@@ -91,5 +94,62 @@ describe('the kill feed', () => {
     expect(killLine(roster, 1, 2)).toEqual({ killer: 'Ann', victim: 'Rook', self: false });
     expect(killLine(roster, 2, 2)).toEqual({ killer: 'Rook', victim: 'Rook', self: true });
     expect(killLine(roster, 9, 1).killer).toBe('#9'); // left the room since
+  });
+});
+
+describe('the overlay graph', () => {
+  const sample = (rttMs: number | null, fixUnits = 0) => ({
+    rttMs,
+    delayMs: 66,
+    bufferMs: 40,
+    fixUnits,
+  });
+
+  it('keeps the last ten seconds and drops the oldest', () => {
+    const h = new History();
+    for (let i = 0; i < SAMPLE_HZ * SECONDS + 5; i++) h.push(sample(i));
+    expect(h.samples).toHaveLength(SAMPLE_HZ * SECONDS);
+    expect(h.samples[0]?.rttMs).toBe(5);
+  });
+
+  it('scales to its largest line by hundreds, at least 200 ms, and its bars on their own', () => {
+    const h = new History();
+    h.push(sample(null));
+    expect(h.scaleMs()).toBe(200);
+    expect(h.scaleUnits()).toBe(8);
+    h.push(sample(312, 20.5));
+    expect(h.scaleMs()).toBe(400);
+    expect(h.scaleUnits()).toBe(21);
+  });
+});
+
+describe('the lab', () => {
+  it('reads a radio value as whole milliseconds, anything else as none', () => {
+    expect(msOf('300')).toBe(300);
+    expect(msOf(null)).toBe(0);
+    expect(msOf('-5')).toBe(0);
+    expect(msOf('1.5')).toBe(0);
+    expect(msOf('x')).toBe(0);
+  });
+});
+
+describe('the kill replay', () => {
+  it('plays at half speed and holds its last tick', () => {
+    const r = { from: 100, to: 190 };
+    expect(replayTick(r, 0)).toBe(100);
+    expect(replayTick(r, 1000)).toBe(115); // a second of watching, half a second of play
+    expect(replayTick(r, 60_000)).toBe(190);
+  });
+
+  it('frames the death, the shell’s path and the killer in one square, never too close', () => {
+    expect(frameFor([{ x: 8000, y: 8000 }])).toEqual({ x: 8000, y: 8000, half: MIN_HALF });
+    const f = frameFor([
+      { x: 2000, y: 3000 },
+      { x: 12_000, y: 5000 },
+      { x: 6000, y: 4000 },
+    ]);
+    expect(f.x).toBe(7000);
+    expect(f.y).toBe(4000);
+    expect(f.half).toBe(5000 + 1280); // the wider side, and a margin
   });
 });

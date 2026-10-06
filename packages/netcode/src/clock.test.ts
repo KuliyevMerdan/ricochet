@@ -25,6 +25,8 @@ describe('ServerClock', () => {
     // A ping that queued 200 ms says the server is seven ticks behind that. It is not believed.
     pong(c, 60 * TICK_MS, 200, 50);
     expect(c.rtt()).toBe(40);
+    // The link as it is now is the newest's — what the overlay shows and the input cap allows for.
+    expect(c.latest()).toBe(200);
     expect(c.at(60 * TICK_MS)).toBeCloseTo(fast, 9);
     expect(fast).toBeCloseTo(60 + 20 / TICK_MS, 9);
   });

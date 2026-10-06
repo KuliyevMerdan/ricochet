@@ -184,4 +184,84 @@ describe('Client', () => {
     expect(r.client.state.kind).toBe('closed');
     expect(r.sockets).toHaveLength(1);
   });
+
+  it('sends the lab on its own link, again after every welcome; stalls it; drops its own end', () => {
+    const r = rig();
+    const labs = () => r.socket().sent.filter((m) => m.type === 'lab');
+    r.socket().events.open();
+    r.client.lab({ latencyMs: 300, jitterMs: 40 });
+    expect(labs()).toEqual([]); // not live yet: the welcome will carry it
+    r.say(welcome());
+    expect(labs()).toEqual([{ type: 'lab', latencyMs: 300, jitterMs: 40 }]);
+    r.client.stall(2000);
+    expect(r.socket().sent.at(-1)).toEqual({ type: 'stall', ms: 2000 });
+
+    r.client.drop();
+    expect(r.client.state).toMatchObject({ kind: 'reconnecting', inMs: 250 });
+    expect(r.sockets[0]?.closed).toBe(true);
+    r.sched.run(600);
+    r.socket().events.open();
+    r.say(welcome(true));
+    // A new socket starts clean on the server: the lab goes again.
+    expect(labs()).toEqual([{ type: 'lab', latencyMs: 300, jitterMs: 40 }]);
+
+    r.client.lab({ latencyMs: 0, jitterMs: 0 });
+    expect(labs().at(-1)).toEqual({ type: 'lab', latencyMs: 0, jitterMs: 0 });
+    r.client.drop();
+    r.sched.run(r.sched.now + 600);
+    r.socket().events.open();
+    r.say(welcome(true));
+    expect(labs()).toEqual([]); // a clean link needs no word
+  });
+
+  it('draws the server ghost, and with the prediction or the interpolation off, the views as they come', () => {
+    const r = rig(); // the intent drives east
+    const state = { hull: 0, turret: 0, hp: 3, shield: false, alive: true };
+    r.socket().events.open();
+    r.say(welcome());
+    r.say(
+      snapshot(101, {
+        tanks: {
+          removed: [],
+          updated: [
+            { id: 7, pos: { kind: 'abs', x: 8000, y: 3500 }, state },
+            { id: 9, pos: { kind: 'abs', x: 10_000, y: 9000 }, state },
+          ],
+        },
+      }),
+    );
+    r.say({ type: 'pong', id: 1, tick: 101, offsetUs: 0 });
+    for (let t = 102; t <= 106; t++) {
+      r.sched.run(r.sched.now + 1000 / 30);
+      r.say(
+        snapshot(t, {
+          tanks: {
+            removed: [],
+            updated: [{ id: 9, pos: { kind: 'rel', dx: 59, dy: 0 }, state: null }],
+          },
+        }),
+      );
+    }
+    const newest = 10_000 + 59 * 5;
+
+    const on = r.client.frame(r.sched.now);
+    // The ghost: every tank where the newest snapshot has it — the own tank's has acknowledged nothing.
+    expect(on.ghosts.map((t) => [t.id, t.x])).toEqual([
+      [7, 8000],
+      [9, newest],
+    ]);
+    expect(on.me?.x).toBeGreaterThan(8000 + 59); // predicted, ahead of the server
+    const other = on.others.find((t) => t.id === 9);
+    expect(other?.x).toBeLessThan(newest); // interpolated, behind the newest
+
+    r.client.modes = { predict: false, interpolate: false };
+    const off = r.client.frame(r.sched.now);
+    expect(off.me?.x).toBe(8000); // the server's own tank, as the views have it
+    expect(off.others.map((t) => [t.id, t.x])).toEqual([[9, newest]]);
+    expect(off.offset).toEqual({ x: 0, y: 0 });
+
+    // Switched back on, the prediction is where it was: it ran on underneath.
+    r.client.modes = { predict: true, interpolate: true };
+    expect(r.client.frame(r.sched.now).me?.x).toBeCloseTo(on.me?.x ?? 0, 0);
+  });
 });

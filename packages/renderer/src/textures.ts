@@ -30,6 +30,9 @@ export const CELLS = {
   shell: { x: 160, y: 136, w: 32, h: 32 },
   spark: { x: 200, y: 136, w: 12, h: 12 },
   dot: { x: 220, y: 136, w: 16, h: 16 },
+  /** The server ghost: the hull's footprint and the turret, in outline. */
+  ghostHull: { x: 400, y: 0, w: 104, h: 104 },
+  ghostTurret: { x: 240, y: 136, w: 152, h: 40 },
 } as const satisfies Record<string, Cell>;
 
 export type FrameName = keyof typeof CELLS;
@@ -110,6 +113,24 @@ export function buildAtlas(scene: Phaser.Scene): void {
     g.fillCircle(x + w / 2, y + h / 2, 15);
     g.fillStyle(0xffffff, 1);
     g.fillCircle(x + w / 2, y + h / 2, 11);
+  }
+  // The ghost's hull: the footprint, treads and all, and a tick at the front (+x).
+  {
+    const { x, y, w, h } = c.ghostHull;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    g.lineStyle(4, 0xffffff, 1);
+    g.strokeRoundedRect(cx - 46, cy - 46, 92, 92, 10);
+    g.lineBetween(cx + 30, cy - 18, cx + 30, cy + 18);
+  }
+  // The ghost's turret: the barrel and the base, in outline, its pivot at the cell's centre.
+  {
+    const { x, y, w, h } = c.ghostTurret;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    g.lineStyle(3, 0xffffff, 1);
+    g.strokeRoundedRect(cx + 17, cy - 6, 47, 12, 4);
+    g.strokeCircle(cx, cy, 17);
   }
   // Spark and minimap dot.
   g.fillStyle(0xffffff, 1);

@@ -8,7 +8,9 @@ import type { Effect } from './own.js';
  * ~100 ms in the past, so a hit on one shows when that tank, drawn, is where it was struck. A hit,
  * a kill, a spawn, a crate taken — each from its event, never inferred. An other's shell that is
  * gone from a view without a hit ended on its own: its flight says where, as the server's did.
- * The own shells' hits are `OwnShells`', shown as their snapshot arrives, in the present they fly in.
+ * The own shells' hits are `OwnShells`', shown as their snapshot arrives, in the present they fly in
+ * — unless the prediction is switched off (C3's lab), when the own shells are the server's like
+ * everyone else's: their shots, hits and ends shown here, at the drawn time.
  */
 export class Happenings {
   /** The last view whose events were shown; `null` until the drawn time first starts. */
@@ -22,6 +24,7 @@ export class Happenings {
     you: number,
     me: { readonly x: number; readonly y: number } | null,
     out: Effect[],
+    predicted = true,
   ): void {
     if (this.done === null) {
       this.done = Math.floor(drawn);
@@ -34,7 +37,7 @@ export class Happenings {
         prev = v;
         continue;
       }
-      this.show(prev, v, you, me, out);
+      this.show(prev, v, predicted ? you : null, me, out);
       this.done = v.tick;
       prev = v;
     }
@@ -44,10 +47,11 @@ export class Happenings {
     this.done = null;
   }
 
+  /** `you` is `null` when the own shells are not predicted: then they are shown as the others'. */
   private show(
     prev: View | null,
     v: View,
-    you: number,
+    you: number | null,
     me: { readonly x: number; readonly y: number } | null,
     out: Effect[],
   ): void {
@@ -82,8 +86,13 @@ export class Happenings {
         case 'crate':
           out.push({ kind: 'crate', spot: e.spot, tank: e.tank });
           break;
-        case 'shot':
+        case 'shot': {
+          // Sent to the shooter only: with no prediction, the own muzzle flash is the server's word.
+          const s = you === null ? shellOf.get(e.shell) : undefined;
+          const at = s ? where(e.tank) : null;
+          if (s && at) out.push({ kind: 'fire', x: at.x, y: at.y, dir: s.dir, owner: e.tank });
           break;
+        }
       }
     }
     if (!prev) return;

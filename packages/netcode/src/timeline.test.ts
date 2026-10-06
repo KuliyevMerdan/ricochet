@@ -28,6 +28,11 @@ describe('Timeline', () => {
     const b = t.sample(103);
     expect(b?.tick).toBeCloseTo(98.5, 9);
     expect(b?.from.tick).toBe(98);
+    // The overlay's numbers: no jitter, and the newest view a tick and a half ahead of the drawn
+    // time — a tick, half a tick later, with no frame drawn between.
+    expect(t.jitter()).toBe(0);
+    expect(t.ahead(103)).toBeCloseTo(1.5, 9);
+    expect(t.ahead(103.5)).toBeCloseTo(1, 9);
     expect(b?.to?.tick).toBe(99);
     expect(b?.alpha).toBeCloseTo(0.5, 9);
   });

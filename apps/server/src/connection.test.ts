@@ -2,10 +2,10 @@ import { encodeClient, decodeServer } from '@ricochet/protocol';
 import type { ErrorCode, ServerMessage } from '@ricochet/protocol';
 import { describe, expect, it } from 'vitest';
 import { Connection } from './connection.js';
-import type { Socket } from './connection.js';
+import type { LabControl, Socket } from './connection.js';
 import { Lobby } from './lobby.js';
 
-function rig(now = { t: 0 }) {
+function rig(now = { t: 0 }, link: LabControl | null = null) {
   const got: ServerMessage[] = [];
   let refused: ErrorCode | null = null;
   const socket: Socket = {
@@ -16,6 +16,7 @@ function rig(now = { t: 0 }) {
     close: () => {},
     refuse: (code) => (refused = code),
     rttMs: () => null,
+    link,
   };
   const lobby = new Lobby({
     maxRooms: 5,
@@ -88,5 +89,33 @@ describe('Connection', () => {
     r.c.receive(hello());
     r.c.receive(encodeClient({ type: 'ping', id: 7 }));
     expect(r.got.at(-1)).toEqual({ type: 'pong', id: 7, tick: 40, offsetUs: 12_500 });
+  });
+
+  it('hands lab and stall to its own socket’s link, and to nobody’s on a server without one', () => {
+    const calls: unknown[] = [];
+    const link: LabControl = {
+      set: (f) => calls.push(['set', f]),
+      stall: (ms) => calls.push(['stall', ms]),
+    };
+    const r = rig({ t: 0 }, link);
+    r.c.receive(hello());
+    r.c.receive(encodeClient({ type: 'lab', latencyMs: 300, jitterMs: 40 }));
+    r.c.receive(encodeClient({ type: 'stall', ms: 2000 }));
+    expect(calls).toEqual([
+      ['set', { latencyMs: 300, jitterMs: 40 }],
+      ['stall', 2000],
+    ]);
+
+    const off = rig();
+    off.c.receive(hello());
+    off.c.receive(encodeClient({ type: 'lab', latencyMs: 300, jitterMs: 40 }));
+    off.c.receive(encodeClient({ type: 'stall', ms: 2000 }));
+    expect(off.refused()).toBeNull();
+  });
+
+  it('refuses a lab frame before hello, as anything else', () => {
+    const r = rig();
+    r.c.receive(encodeClient({ type: 'lab', latencyMs: 0, jitterMs: 0 }));
+    expect(r.refused()).toBe('MALFORMED');
   });
 });

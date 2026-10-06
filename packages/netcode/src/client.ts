@@ -30,6 +30,7 @@ import { Shells, between, others } from './picture.js';
 import type { DrawnShell, DrawnTank } from './picture.js';
 import { Prediction } from './prediction.js';
 import type { Mover, Offset, Reconciled } from './prediction.js';
+import { Replay } from './replay.js';
 import { Timeline } from './timeline.js';
 
 /** What the client needs of a socket: somewhere to send a binary frame, and a way to end it. */
@@ -65,6 +66,23 @@ export interface Intent {
   readonly aim: number;
   readonly move: number | null;
   readonly fire: boolean;
+}
+
+/** The network lab's settings for this client's own link (docs/protocol.md § 3.1). */
+export interface LabFaults {
+  /** Added to the round trip, ms. */
+  readonly latencyMs: number;
+  /** Up to this much more on each frame, ms. */
+  readonly jitterMs: number;
+}
+
+/** How the picture is made: the own tank predicted, the others interpolated — each switchable off
+ * in the lab (ROADMAP C3), so the difference is felt rather than explained. */
+export interface Modes {
+  /** Off: the own tank and its shells drawn as the server's views have them, like everyone else's. */
+  readonly predict: boolean;
+  /** Off: everyone else drawn where the newest snapshot puts them, a tick at a time. */
+  readonly interpolate: boolean;
 }
 
 /** Where the connection is — a stream of these, one per change (ROADMAP C0). */
@@ -115,16 +133,28 @@ export interface Frame {
   /** The ticks of the two views the others are drawn between; `to` is `null` past the newest. */
   readonly from: number | null;
   readonly to: number | null;
+  /** Every tank where the newest snapshot puts it — the server ghost (C3): over the own tank the
+   * prediction's lead, over the others the interpolation's lag. */
+  readonly ghosts: readonly DrawnTank[];
 }
 
 export interface NetStats {
+  /** The newest pong's round trip, ms. */
   readonly rttMs: number | null;
+  /** How unevenly snapshots arrive: the 95th percentile of their lateness past the least, ms. */
+  readonly jitterMs: number;
   /** How far behind the newest snapshot the others are drawn, ms. */
   readonly delayMs: number;
+  /** How far the newest view held is ahead of the drawn time — the buffer's depth, ms. */
+  readonly bufferMs: number;
+  /** The newest view's tick; `null` before one. */
+  readonly tick: number | null;
   readonly unacked: number;
   /** How many ticks ahead of the server's present the inputs are sent. */
   readonly lead: number;
   readonly corrections: number;
+  /** How far the corrections moved the own tank, all told, eighths. */
+  readonly corrected: number;
   /** The own shots: predicted, adopted by the server's shell, fizzled, and fired by the server
    * unforeseen; the step at adoption, eighths, mean and worst of the last 100. */
   readonly shots: ShotStats;
@@ -161,6 +191,7 @@ const EMPTY: Frame = {
   offset: { x: 0, y: 0 },
   from: null,
   to: null,
+  ghosts: [],
 };
 
 /** The own tank as the prediction holds it, from a view's tank and its own timers. */
@@ -204,6 +235,9 @@ export class Client {
   private view: View | null = null;
   private rosterNow: readonly RosterEntry[] = [];
 
+  private faults: LabFaults = { latencyMs: 0, jitterMs: 0 };
+  private drawing: Modes = { predict: true, interpolate: true };
+
   private readonly server = new ServerClock();
   private readonly timeline = new Timeline();
   private prediction: Prediction | null = null;
@@ -230,6 +264,7 @@ export class Client {
   private retryTimer: (() => void) | null = null;
 
   private corrections = 0;
+  private corrected = 0;
   private bytesIn = 0;
   private bytesOut = 0;
 
@@ -275,51 +310,122 @@ export class Client {
 
   stats(): NetStats {
     return {
-      rttMs: this.server.rtt(),
+      rttMs: this.server.latest(),
+      jitterMs: this.timeline.jitter() * TICK_MS,
       delayMs: this.timeline.delay() * TICK_MS,
+      bufferMs: this.server.synced
+        ? this.timeline.ahead(this.server.at(this.opts.clock.now())) * TICK_MS
+        : 0,
+      tick: this.view?.tick ?? null,
       unacked: this.prediction?.unacked ?? 0,
       lead: this.lead ?? 0,
       corrections: this.corrections,
+      corrected: this.corrected,
       shots: this.own?.stats() ?? NO_SHOTS,
       bytesIn: this.bytesIn,
       bytesOut: this.bytesOut,
     };
   }
 
-  /** The picture at local time `now`: the own tank predicted, everyone else interpolated. */
+  /**
+   * The picture at local time `now`: the own tank predicted, everyone else interpolated — or, with
+   * either switched off (`modes`), the server's views drawn as they come.
+   */
   frame(now: number): Frame {
     const view = this.view;
     const { prediction, shells, own, happenings } = this;
     if (this.current.kind !== 'live' || !view || !prediction || !shells || !own || !happenings) {
       return EMPTY;
     }
+    const { predict, interpolate } = this.drawing;
     const serverNow = this.server.synced ? this.server.at(now) : view.tick;
-    const b = this.timeline.sample(serverNow);
+    const sampled = this.timeline.sample(serverNow);
+    // Interpolation off: everyone where the newest snapshot has them, stepping a tick at a time.
+    const b =
+      sampled && !interpolate
+        ? { ...sampled, tick: view.tick, from: view, to: null, alpha: 0, before: null }
+        : sampled;
     const offset = prediction.offset(now);
     const peeked = this.opts.peek?.() ?? null;
     const want = peeked ?? { ...this.lastIntent, fire: false };
     const next = prediction.next(command(want));
     // A press between ticks fires now, as the next input will: the shell that input will carry.
     if (peeked && next?.fires && this.sentTick !== null) {
-      own.fire(this.seq + 1, next.after, serverNow, this.effects);
+      own.fire(this.seq + 1, next.after, serverNow, this.ownOut());
     }
-    const me = this.me(view, serverNow, offset, next?.after ?? null, want);
+    // Prediction off: the own tank is one of the tanks the views hold, drawn as the others are.
+    const all = b ? others(b, predict ? this.ownId : 0) : [];
+    const me = predict
+      ? this.me(view, serverNow, offset, next?.after ?? null, want)
+      : (all.find((t) => t.id === this.ownId) ?? null);
     const effects = this.effects;
     this.effects = [];
-    const drawn = b ? shells.draw(b, this.ownId) : [];
-    own.draw(serverNow, now, drawn, effects);
-    if (b) happenings.update(this.timeline.held(), b.tick, this.ownId, me, effects);
+    const drawn = b ? shells.draw(b, predict ? this.ownId : 0) : [];
+    own.draw(serverNow, now, predict ? drawn : [], this.ownOut(effects));
+    if (b) happenings.update(this.timeline.held(), b.tick, this.ownId, me, effects, predict);
     return {
       tick: b?.tick ?? view.tick,
       me,
-      others: b ? others(b, this.ownId) : [],
+      others: predict ? all : all.filter((t) => t.id !== this.ownId),
       shells: drawn,
       effects,
       crates: b?.from.crates ?? view.crates,
-      offset,
+      offset: predict ? offset : { x: 0, y: 0 },
       from: b?.from.tick ?? null,
       to: b?.to?.tick ?? null,
+      ghosts: view.tanks.map((t) => ({ ...t })),
     };
+  }
+
+  /** Where the own shells' effects go: shown while they are predicted, dropped while the server's
+   * views draw them (`Happenings` shows those). */
+  private ownOut(into: Effect[] = this.effects): Effect[] {
+    return this.drawing.predict ? into : [];
+  }
+
+  /** How the picture is made (C3's lab). The prediction runs on underneath either way, so switching
+   * it back on is exact at once. */
+  get modes(): Modes {
+    return this.drawing;
+  }
+
+  set modes(m: Modes) {
+    this.drawing = { predict: m.predict, interpolate: m.interpolate };
+  }
+
+  /** The lab's settings for this client's own link, sent now and after every `welcome` — they live
+   * on the server's side of the socket, and a new socket starts clean (docs/protocol.md § 3.1). */
+  lab(faults: LabFaults): void {
+    const was = this.faults;
+    this.faults = { latencyMs: faults.latencyMs, jitterMs: faults.jitterMs };
+    if (this.current.kind !== 'live') return;
+    this.send({ type: 'lab', ...this.faults });
+    // The link just changed: measure it again quickly, as after a welcome.
+    if (was.latencyMs !== faults.latencyMs || was.jitterMs !== faults.jitterMs) {
+      this.pingTimer?.();
+      this.pings = 0;
+      this.ping();
+    }
+  }
+
+  get labFaults(): LabFaults {
+    return this.faults;
+  }
+
+  /** The lab's stall: this client's own link frozen both ways for `ms`. */
+  stall(ms: number): void {
+    if (this.current.kind === 'live') this.send({ type: 'stall', ms });
+  }
+
+  /** The lab's dropped socket: this end lets go, as a dead link would, and the client reconnects
+   * with its token onto the same tank. A close the browser starts is the one a proxy passes on. */
+  drop(): void {
+    if (this.current.kind === 'live') this.retry('the lab dropped the socket');
+  }
+
+  /** The kill replay of the own tank's last death within the views held — the server's truth. */
+  replay(): Replay | null {
+    return this.arena ? Replay.of(this.timeline.held(), this.ownId, this.arena) : null;
   }
 
   /** Leave for good. */
@@ -442,6 +548,9 @@ export class Client {
     this.pings = 0;
     this.pingSent.clear();
     this.set({ kind: 'live', you: m.you, resumed: m.resumed });
+    if (this.faults.latencyMs > 0 || this.faults.jitterMs > 0) {
+      this.send({ type: 'lab', ...this.faults });
+    }
     this.ping();
     this.wake();
   }
@@ -461,7 +570,7 @@ export class Client {
     const shots = this.own;
     if (mine && this.prediction && shots) {
       // The own shells first: what they adopt and end decides what the gun may fire.
-      shots.snapshot(view, this.ownId, present, now, this.effects);
+      shots.snapshot(view, this.ownId, present, now, this.ownOut());
       const rec = this.prediction.reconcile(
         body(mine, view),
         view.ack,
@@ -473,12 +582,13 @@ export class Client {
         // counts at the n-th tick is what flew through the one before.
         (n) => shots.aliveAt(view.tick + n - 1),
       );
-      for (const seq of rec.unfired) shots.cancel(seq, present, this.effects);
+      for (const seq of rec.unfired) shots.cancel(seq, present, this.ownOut());
       for (const seq of rec.refired) {
         const after = this.prediction.after(seq);
-        if (after) shots.fire(seq, after, present, this.effects);
+        if (after) shots.fire(seq, after, present, this.ownOut());
       }
       if (rec.moved > 0) this.corrections++;
+      if (!rec.snapped) this.corrected += rec.moved;
       this.opts.observe?.(rec);
     }
     if (view.events.length > 0) for (const l of this.eventListeners) l(view.events, view);
@@ -576,8 +686,11 @@ export class Client {
       this.sentTick = target - 1;
     }
     // A stalled link: past a round trip of inputs and a full queue on the server, more would only
-    // be dropped there (protocol § 4.2). The tank waits for the link.
-    const cap = Math.ceil(rtt / TICK_MS) + RULES.inputQueueMax + 2;
+    // be dropped there (protocol § 4.2). The tank waits for the link. The round trip is the newest
+    // as well as the least: a link that just got slower holds more inputs in flight than the least
+    // of the last twelve seconds says (C3's lab found the tank stuttering for those twelve).
+    const trip = Math.max(rtt, this.server.latest() ?? rtt);
+    const cap = Math.ceil(trip / TICK_MS) + RULES.inputQueueMax + 2;
     while (this.sentTick < target) {
       this.sentTick++;
       if (prediction.unacked >= cap) continue;
@@ -590,12 +703,12 @@ export class Client {
       const after = prediction.after(input.seq);
       const present = this.server.at(now);
       if (fires && after) {
-        this.own?.fire(input.seq, after, present, this.effects);
+        this.own?.fire(input.seq, after, present, this.ownOut());
         const ow = rtt / 2 / TICK_MS;
         this.own?.sent(input.seq, present, ow + this.queueWait(), ow);
       }
       // A shot drawn at the press that this input, sampled since, does not fire.
-      if (!fires) this.own?.cancel(input.seq, this.server.at(now), this.effects);
+      if (!fires) this.own?.cancel(input.seq, this.server.at(now), this.ownOut());
     }
     const ms = (this.sentTick + 1 - at) * TICK_MS;
     this.tickTimer = this.opts.timers.after(Math.max(1, ms + 0.25), () => this.wake());

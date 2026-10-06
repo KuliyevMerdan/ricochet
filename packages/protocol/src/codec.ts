@@ -4,6 +4,7 @@ import {
   CLIENT_MESSAGES,
   ERROR_CODES,
   EVENT_TYPES,
+  LAB_LIMITS,
   NAME_MAX_BYTES,
   SERVER_MESSAGES,
   TOKEN_BYTES,
@@ -100,6 +101,12 @@ export function encodeClient(msg: ClientMessage): Uint8Array {
     }
     case 'ping':
       w.u8(CLIENT_MESSAGES.ping).u16(msg.id);
+      break;
+    case 'lab':
+      w.u8(CLIENT_MESSAGES.lab).u16(msg.latencyMs).u16(msg.jitterMs);
+      break;
+    case 'stall':
+      w.u8(CLIENT_MESSAGES.stall).u16(msg.ms);
       break;
   }
   return w.done();
@@ -286,6 +293,18 @@ export function decodeClient(bytes: Uint8Array): Result<ClientMessage> {
       }
       case CLIENT_MESSAGES.ping:
         return { type: 'ping', id: r.u16() };
+      case CLIENT_MESSAGES.lab: {
+        const latencyMs = r.u16();
+        const jitterMs = r.u16();
+        need(latencyMs <= LAB_LIMITS.latencyMs, 'lab latency over 1000 ms');
+        need(jitterMs <= LAB_LIMITS.jitterMs, 'lab jitter over 500 ms');
+        return { type: 'lab', latencyMs, jitterMs };
+      }
+      case CLIENT_MESSAGES.stall: {
+        const ms = r.u16();
+        need(ms > 0 && ms <= LAB_LIMITS.stallMs, 'a stall not in 1…5000 ms');
+        return { type: 'stall', ms };
+      }
       default:
         throw new Malformed(`unknown client message 0x${type.toString(16)}`);
     }
