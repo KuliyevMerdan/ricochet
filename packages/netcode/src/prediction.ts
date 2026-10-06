@@ -234,6 +234,11 @@ export class Prediction {
     return { x: this.offset0.x * k, y: this.offset0.y * k };
   }
 
+  /** The correction left is dropped, not smoothed: the tank drawn where the prediction has it. */
+  snap(): void {
+    this.offset0 = { x: 0, y: 0, at: 0 };
+  }
+
   reset(): void {
     this.pending = [];
     this.base = null;

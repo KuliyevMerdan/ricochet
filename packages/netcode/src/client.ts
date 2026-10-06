@@ -152,6 +152,7 @@ export interface NetStats {
   readonly unacked: number;
   /** How many ticks ahead of the server's present the inputs are sent. */
   readonly lead: number;
+  /** Snapshots that moved the own tank's prediction — a respawn, drawn at once, not among them. */
   readonly corrections: number;
   /** How far the corrections moved the own tank, all told, eighths. */
   readonly corrected: number;
@@ -180,6 +181,11 @@ const RETRY_FIRST = 250;
 const RETRY_MAX = 4000;
 const RETRY_FULL = 5000;
 const RETRY_RATE = 1000;
+/** A socket that has said nothing this long — a snapshot comes every tick — has died without
+ * saying so: a half-open link, which the browser may not notice for minutes. Longer than the lab's
+ * longest stall (5 s), well inside the resume grace (10 s). Checked once a second. */
+const SILENT_MS = 6000;
+const WATCH_MS = 1000;
 
 const EMPTY: Frame = {
   tick: 0,
@@ -262,6 +268,11 @@ export class Client {
   private tickTimer: (() => void) | null = null;
   private pingTimer: (() => void) | null = null;
   private retryTimer: (() => void) | null = null;
+  private watchTimer: (() => void) | null = null;
+  /** When the socket last said anything, local ms. */
+  private heardAt = 0;
+  /** The page is hidden: no inputs, no effects (ROADMAP P0). */
+  private hidden = false;
 
   private corrections = 0;
   private corrected = 0;
@@ -380,7 +391,31 @@ export class Client {
   /** Where the own shells' effects go: shown while they are predicted, dropped while the server's
    * views draw them (`Happenings` shows those). */
   private ownOut(into: Effect[] = this.effects): Effect[] {
-    return this.drawing.predict ? into : [];
+    return this.drawing.predict && !this.hidden ? into : [];
+  }
+
+  /**
+   * The page hidden or shown (ROADMAP P0). Hidden, the browser stops its frames and slows its
+   * timers to a crawl, so the client sends no inputs at all — the server stands the tank (protocol
+   * D15) — and keeps no effects: nothing would show them. Shown again, it snaps to the truth: the
+   * correction left from before is dropped rather than smoothed, the server's events of the time
+   * away are not replayed as a burst, and the inputs start afresh from the server's present. The
+   * socket stays open throughout; the views keep coming.
+   */
+  setHidden(hidden: boolean): void {
+    if (hidden === this.hidden) return;
+    this.hidden = hidden;
+    this.effects = [];
+    if (hidden) {
+      this.tickTimer?.();
+      this.tickTimer = null;
+      return;
+    }
+    const newest = this.timeline.newest();
+    if (newest) this.happenings?.skipTo(newest.tick);
+    this.prediction?.snap();
+    this.sentTick = null;
+    if (this.current.kind === 'live' && !this.tickTimer) this.wake();
   }
 
   /** How the picture is made (C3's lab). The prediction runs on underneath either way, so switching
@@ -451,6 +486,8 @@ export class Client {
       if (generation === this.generation) fn();
     };
     this.set({ kind: 'connecting', attempt: this.attempt });
+    this.heardAt = this.opts.clock.now();
+    this.watch();
     this.socket = this.opts.connect({
       open: mine(() => this.opened()),
       message: (frame) => {
@@ -477,6 +514,7 @@ export class Client {
   }
 
   private received(frame: Uint8Array | null): void {
+    this.heardAt = this.opts.clock.now();
     if (frame === null) return this.outdated('a text frame');
     this.bytesIn += frame.length;
     const d = decodeServer(frame);
@@ -552,6 +590,7 @@ export class Client {
       this.send({ type: 'lab', ...this.faults });
     }
     this.ping();
+    this.watch();
     this.wake();
   }
 
@@ -587,8 +626,11 @@ export class Client {
         const after = this.prediction.after(seq);
         if (after) shots.fire(seq, after, present, this.ownOut());
       }
-      if (rec.moved > 0) this.corrections++;
-      if (!rec.snapped) this.corrected += rec.moved;
+      // A respawn is drawn at once, not corrected: it is not counted as one.
+      if (rec.moved > 0 && !rec.snapped) {
+        this.corrections++;
+        this.corrected += rec.moved;
+      }
       this.opts.observe?.(rec);
     }
     if (view.events.length > 0) for (const l of this.eventListeners) l(view.events, view);
@@ -646,12 +688,26 @@ export class Client {
     this.tickTimer?.();
     this.pingTimer?.();
     this.retryTimer?.();
+    this.watchTimer?.();
     this.tickTimer = null;
     this.pingTimer = null;
     this.retryTimer = null;
+    this.watchTimer = null;
   }
 
   // ── the clock and the inputs ───────────────────────────────────────────────────────────────────
+
+  /** Once a second while a socket is open: one silent for `SILENT_MS` is given up on, and the
+   * token takes the tank back on a fresh one. */
+  private watch(): void {
+    this.watchTimer?.();
+    this.watchTimer = this.opts.timers.after(WATCH_MS, () => {
+      this.watchTimer = null;
+      if (this.opts.clock.now() - this.heardAt > SILENT_MS)
+        return this.retry('the link went silent');
+      this.watch();
+    });
+  }
 
   private ping(): void {
     const now = this.opts.clock.now();
@@ -672,6 +728,7 @@ export class Client {
    */
   private wake(): void {
     this.tickTimer = null;
+    if (this.hidden) return;
     const prediction = this.prediction;
     const rtt = this.server.rtt();
     if (!prediction || !prediction.tank || rtt === null) {

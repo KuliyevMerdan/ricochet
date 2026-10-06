@@ -264,4 +264,74 @@ describe('Client', () => {
     r.client.modes = { predict: true, interpolate: true };
     expect(r.client.frame(r.sched.now).me?.x).toBeCloseTo(on.me?.x ?? 0, 0);
   });
+
+  it('gives up on a socket that goes silent, and takes its tank back on a fresh one', () => {
+    const r = rig();
+    r.socket().events.open();
+    r.say(welcome());
+    r.say(snapshot(101));
+    r.say({ type: 'pong', id: 1, tick: 101, offsetUs: 0 });
+    // A snapshot every tick for five seconds: alive.
+    for (let t = 102; t < 102 + 150; t++) {
+      r.sched.run(r.sched.now + 1000 / 30);
+      r.say(snapshot(t));
+    }
+    expect(r.client.state.kind).toBe('live');
+    // Then nothing — a half-open link, no close ever coming. Past six seconds it is given up on.
+    r.sched.run(r.sched.now + 5500);
+    expect(r.client.state.kind).toBe('live');
+    const reasons: string[] = [];
+    r.client.onState((st) => {
+      if (st.kind === 'reconnecting') reasons.push(st.reason);
+    });
+    r.sched.run(r.sched.now + 1500);
+    expect(reasons).toEqual(['the link went silent']);
+    expect(r.sockets[0]?.closed).toBe(true);
+    r.sched.run(r.sched.now + 300);
+    expect(r.sockets).toHaveLength(2);
+    r.socket().events.open();
+    const hello = r.socket().sent[0];
+    expect(hello?.type === 'hello' && hello.token !== null).toBe(true);
+  });
+
+  it('sends no inputs and keeps no effects while hidden, and starts afresh when shown', () => {
+    const r = rig();
+    const inputs = () => r.socket().sent.filter((m) => m.type === 'input').length;
+    r.socket().events.open();
+    r.say(welcome());
+    r.say(snapshot(101));
+    r.say({ type: 'pong', id: 1, tick: 101, offsetUs: 0 });
+    let tick = 102;
+    const ack = () => {
+      const seq =
+        r
+          .socket()
+          .sent.flatMap((m) => (m.type === 'input' ? [m.seq] : []))
+          .at(-1) ?? 0;
+      r.say(snapshot(tick++, { ack: seq }));
+    };
+    for (let i = 0; i < 10; i++) {
+      r.sched.run(r.sched.now + 1000 / 30);
+      ack();
+    }
+    expect(inputs()).toBeGreaterThan(5);
+
+    r.client.setHidden(true);
+    const before = inputs();
+    for (let i = 0; i < 90; i++) {
+      r.sched.run(r.sched.now + 1000 / 30);
+      ack(); // the views keep coming
+    }
+    expect(inputs()).toBe(before);
+    expect(r.client.state.kind).toBe('live'); // and the socket is not given up on
+    expect(r.client.frame(r.sched.now).effects).toEqual([]);
+
+    r.client.setHidden(false);
+    expect(r.client.frame(r.sched.now).offset).toEqual({ x: 0, y: 0 });
+    for (let i = 0; i < 10; i++) {
+      r.sched.run(r.sched.now + 1000 / 30);
+      ack();
+    }
+    expect(inputs()).toBeGreaterThan(before + 5);
+  });
 });

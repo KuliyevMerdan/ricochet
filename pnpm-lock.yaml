@@ -283,10 +283,16 @@ importers:
       '@ricochet/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      ws:
+        specifier: 'catalog:'
+        version: 8.22.0
     devDependencies:
       '@types/node':
         specifier: ^20
         version: 20.19.43
+      '@types/ws':
+        specifier: 'catalog:'
+        version: 8.18.2
       typescript:
         specifier: 'catalog:'
         version: 5.9.3

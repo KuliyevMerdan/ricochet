@@ -7,7 +7,7 @@ import { Room } from './room.js';
 import type { Peer } from './room.js';
 
 /** A peer that keeps what it is sent, decoded. */
-function peer(rtt: number | null = null) {
+function peer(rtt: number | null = null, backlog = { bytes: 0 }) {
   const got: ServerMessage[] = [];
   let closed = false;
   const p: Peer = {
@@ -18,6 +18,7 @@ function peer(rtt: number | null = null) {
     },
     close: () => (closed = true),
     rttMs: () => rtt,
+    backlog: () => backlog.bytes,
   };
   return { p, got, isClosed: () => closed };
 }

@@ -38,6 +38,9 @@ minutes, every one the server's (protocol D16).
 **C3 landed 2026-10-06** — the netcode made visible: the server ghost, the overlay and its graph,
 a network lab on the server's side of the visitor's own socket (protocol D17), prediction and
 interpolation switchable off, the kill replay; a stranger's steps through the page took 14 s.
+**P0 landed 2026-10-06** — hardening: a silent socket given up, a hidden page suspended, a slow
+socket skipped then closed (protocol D18), floods bounded; 240 load clients for 30 minutes, the
+tick 1.06 ms late at p99, every short drop back on its own tank.
 
 ---
 
@@ -574,24 +577,38 @@ new socket; a death showed its replay, the fatal shell traced to 0.1 units of th
 
 _2 days._
 
-- [ ] Reconnect: a socket dropped mid-fight resumes the same tank within 10 s with nothing replayed
-      twice; after 10 s the tank is gone and the client rejoins as new.
-- [ ] A hidden tab: the browser stops its frames and slows its timers, so the client stops sending
-      inputs; the server stands the tank (protocol D15); the tab back in view snaps to the truth
-      and resumes prediction.
-- [ ] A slow client: when a socket's `bufferedAmount` grows past a bound, the server skips its
-      snapshots (the next is a delta against what it last sent, so nothing breaks) instead of
-      queueing them; past a second bound, it closes it.
-- [ ] Hostile inputs: an input is a direction and buttons, never a position, so speed is not
-      something a client can claim; inputs beyond the queue's bound dropped; a client sending more
-      than 2× the tick rate throttled; a resume token for another room refused.
-- [ ] `tools/load`: headless clients through `netcode` driven by `bots`' policy over the wire — 20
-      rooms of 12 for 30 minutes against a production-mode server with the lab's faults on part
-      of them; the tick's p99, bytes per client, corrections per client, reconnects. Results to
-      `docs/load/`.
+- [x] Reconnect (2026-10-06): a socket dropped mid-fight resumes the same tank within 10 s with
+      nothing replayed twice; after 10 s the tank is gone and the client rejoins as new.
+      **Diverged:** the client had no way to notice a link that died without closing; it gives a
+      socket up after 6 s of silence now — a snapshot comes every tick — well inside the grace.
+- [x] A hidden tab: the browser stops its frames and slows its timers, so the client stops sending
+      inputs; the server stands the tank (protocol D15); the tab back in view snaps to the truth and
+      resumes prediction. **Diverged:** the page says so (`client.setHidden`) rather than leaving
+      it to the throttled timers, which sent an input a second; and shown again, the client drops
+      the effects of the time away instead of drawing a burst of them.
+- [x] A slow client: when a socket's `bufferedAmount` passes 16 KB, the server skips its snapshots
+      (the next is a delta against what it last sent, so nothing breaks) instead of queueing them,
+      and the skipped ticks' events ride that next one; past 64 KB, it closes it (protocol D18).
+- [x] Hostile inputs: an input is a direction and buttons, never a position, so speed is not
+      something a client can claim — a hundred inputs a tick move a tank one step a tick; inputs
+      beyond the queue's bound dropped; a client sending more than 2× the tick rate refused with
+      `RATE`, and its pings and lab frames past twenty a second ignored; a token leads only to its
+      own tank — forged, outlived or from a closed room, it joins anew.
+- [x] `tools/load`: headless clients through `netcode` driven by `bots`' policy over the wire — 20
+      rooms of 12 for 30 minutes against a production-mode server with the lab's faults on half of
+      them (lagged, rough, dropping); the tick's p99, bytes per client, corrections per client,
+      reconnects. Results to [`docs/load/`](docs/load/README.md). **Diverged:** a respawn no
+      longer counts as a correction — it is drawn at once — so the corrections are the
+      prediction's errors alone.
 
 **Done when:** 240 clients for 30 minutes keep every room's tick within its deadline at p99, stay
 under the bandwidth budget, and every dropped client that came back within 10 s found its own tank.
+**Met 2026-10-06** (`pnpm load`, [`docs/load/`](docs/load/README.md); one laptop, the server and
+six client threads): 20 rooms full for 30 minutes, the tick **1.06 ms late and 3.54 ms of work at
+p99** against its 33.3 ms; **1.62 KB/s** down to the busiest client; **400 of 400** short drops back
+on their own tank in 257 ms at worst, and **189 of 189** long ones — 13 s out, past the grace —
+joined again as new; no reconnect nobody scheduled. The input queue stays at four: 0.5 corrections
+a minute at 150 ± 40 ms, 4.6 at 300 ± 100 ms with a stall every 90 s.
 
 ## Block P1 — Packaging
 

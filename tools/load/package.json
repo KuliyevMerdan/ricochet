@@ -17,17 +17,20 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --config ../../config/vitest.package.ts"
+    "test": "vitest run --config ../../config/vitest.package.ts",
+    "load": "node dist/main.js"
   },
   "dependencies": {
     "@ricochet/netcode": "workspace:*",
     "@ricochet/bots": "workspace:*",
     "@ricochet/protocol": "workspace:*",
-    "@ricochet/geom": "workspace:*"
+    "@ricochet/geom": "workspace:*",
+    "ws": "catalog:"
   },
   "devDependencies": {
     "@types/node": "^20",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@types/ws": "catalog:"
   }
 }

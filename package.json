@@ -13,6 +13,7 @@
     "test": "turbo run test --concurrency=1",
     "test:root": "vitest run",
     "bench": "turbo run build --filter=@ricochet/bench && node tools/bench/dist/main.js",
+    "load": "turbo run build --filter=@ricochet/load --filter=@ricochet/server --output-logs=errors-only && node tools/load/dist/main.js",
     "lint": "eslint . && pnpm run lint:boundaries",
     "lint:boundaries": "depcruise packages apps tools --config .dependency-cruiser.cjs",
     "check": "pnpm run lint && pnpm run build && pnpm run typecheck && pnpm run test && pnpm run test:root && pnpm run format:check",

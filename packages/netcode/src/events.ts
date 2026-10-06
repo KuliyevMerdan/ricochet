@@ -47,6 +47,11 @@ export class Happenings {
     this.done = null;
   }
 
+  /** Nothing up to `tick` is shown — the time a hidden page was away (ROADMAP P0). */
+  skipTo(tick: number): void {
+    this.done = Math.max(this.done ?? tick, tick);
+  }
+
   /** `you` is `null` when the own shells are not predicted: then they are shown as the others'. */
   private show(
     prev: View | null,

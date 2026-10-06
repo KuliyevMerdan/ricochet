@@ -27,6 +27,9 @@ export interface ConnectionClock {
 const MALFORMED_LIMIT = 3;
 /** Inputs a second, twice the tick rate — past it, `RATE` (protocol § 7). */
 const INPUT_RATE_LIMIT = 2 * RULES.tickHz;
+/** Other frames a second — pings, the lab's — past which they are ignored: a ping is answered, and
+ * a flood of them would have the server writing for the sender. A client syncing sends ten. */
+const OTHER_RATE_LIMIT = 20;
 
 const hex = (bytes: Uint8Array) => [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -42,6 +45,7 @@ export class Connection {
   private malformed = 0;
   private windowStart = 0;
   private inputs = 0;
+  private others = 0;
   private done = false;
 
   constructor(
@@ -91,16 +95,18 @@ export class Connection {
       return;
     }
 
+    const now = this.clock.now();
+    if (now - this.windowStart >= 1000) {
+      this.windowStart = now;
+      this.inputs = 0;
+      this.others = 0;
+    }
+    if (msg.type !== 'input' && msg.type !== 'hello' && ++this.others > OTHER_RATE_LIMIT) return;
     switch (msg.type) {
       case 'hello':
         if (++this.malformed >= MALFORMED_LIMIT) this.refuse('MALFORMED');
         return;
       case 'input': {
-        const now = this.clock.now();
-        if (now - this.windowStart >= 1000) {
-          this.windowStart = now;
-          this.inputs = 0;
-        }
         if (++this.inputs > INPUT_RATE_LIMIT) return this.refuse('RATE');
         this.room?.input(this.player, msg);
         return;

@@ -9,10 +9,12 @@ import type { Command, World } from '@ricochet/sim';
 /** What a room needs of a connection: somewhere to send frames, and its measured round trip. */
 export interface Peer {
   send(frame: Uint8Array): void;
-  /** End the connection — a second socket took this player's tank. */
-  close(): void;
+  /** End the connection — a second socket took this player's tank, or it fell too far behind. */
+  close(reason?: string): void;
   /** The socket's round trip as the server measured it, ms — `null` before the first sample. */
   rttMs(): number | null;
+  /** Bytes sent and not yet handed to the network — how far behind the client is reading. */
+  backlog(): number;
 }
 
 export interface Player {
@@ -33,6 +35,8 @@ export interface Player {
   sent: View | null;
   /** The room tick the socket dropped at; `null` while connected. */
   goneAt: number | null;
+  /** The events of snapshots skipped for a slow socket, for the next one it is sent. */
+  carried: GameEvent[];
 }
 
 /** What a tick looked like — handed to an observer, for tests and the bench. */
@@ -45,6 +49,17 @@ export interface TickRecord {
 }
 
 export type Observer = (record: TickRecord) => void;
+
+/**
+ * A slow socket (ROADMAP P0): past `SKIP_BYTES` unsent its snapshots are skipped, not queued — the
+ * next is a delta against the last one sent, so nothing breaks, and the skipped ticks' events ride
+ * it (`CARRY_MAX` of them at most). Past `CLOSE_BYTES` the socket is closed and the tank waits out
+ * the grace for a better link. A snapshot is ~100 bytes, so the first bound is half a second of a
+ * busy room's snapshots held in the server beyond what the network has taken.
+ */
+export const SKIP_BYTES = 16 * 1024;
+export const CLOSE_BYTES = 64 * 1024;
+const CARRY_MAX = 64;
 
 /** The bots' names, and the skills they play at — one of each, so a room is a mix, not a mirror. */
 const BOTS: readonly (readonly [string, Skill])[] = [
@@ -131,6 +146,7 @@ export class Room {
       ack: 0,
       sent: null,
       goneAt: null,
+      carried: [],
     };
     this.players.set(id, player);
     return player;
@@ -168,6 +184,7 @@ export class Room {
     player.queue = [];
     player.received = 0;
     player.ack = 0;
+    player.carried = [];
   }
 
   /** A socket closed: the tank stays, standing still, for `resumeGrace` ticks. */
@@ -176,6 +193,7 @@ export class Room {
     player.goneAt = this.world.tick;
     player.sent = null;
     player.queue = [];
+    player.carried = [];
   }
 
   /**
@@ -264,9 +282,21 @@ export class Room {
     for (const p of this.players.values()) {
       if (!p.peer) continue;
       const v = view(this.world, p.id, events, p.ack);
-      p.peer.send(encodeServer(diff(p.sent, v)));
-      p.sent = v;
-      views.set(p.id, v);
+      const backlog = p.peer.backlog();
+      if (backlog > CLOSE_BYTES) {
+        p.peer.close('too slow');
+        this.detach(p);
+        continue;
+      }
+      if (backlog > SKIP_BYTES) {
+        p.carried = [...p.carried, ...v.events].slice(-CARRY_MAX);
+        continue;
+      }
+      const sent = p.carried.length > 0 ? { ...v, events: [...p.carried, ...v.events] } : v;
+      p.carried = [];
+      p.peer.send(encodeServer(diff(p.sent, sent)));
+      p.sent = sent;
+      views.set(p.id, sent);
     }
     this.idleTicks = views.size === 0 ? this.idleTicks + 1 : 0;
     this.observe?.({ room: this, world: this.world, events, views });

@@ -5,16 +5,18 @@ drive. Top-down and twin-stick: the hull goes where you steer, the turret where 
 shell bounces off a wall once. Node + TypeScript on the server, Phaser in the browser, one WebSocket
 carrying a binary protocol.
 
-> ⚠️ **Status (2026-10-06): the game plays in a browser and shows its netcode.**
-> **S0–S4** and **C0–C3** have landed — the workspace and its enforced boundaries; the wire protocol,
+> ⚠️ **Status (2026-10-06): the game plays in a browser, shows its netcode, and holds 240 players.**
+> **S0–S4**, **C0–C3** and **P0** have landed — the workspace and its enforced boundaries; the wire protocol,
 > its three ADRs, exact integer geometry and a binary codec; the simulation; the server, which has
 > held a room of 12 socket clients for five minutes, every tick within 2 ms of its deadline; bots and
 > the bench; the client's netcode, whose prediction matched the server's to the bit in every one of
 > 17,750 ticks no other tank touched, over ten simulated minutes at 150 ± 40 ms; the page, Phaser
 > drawing the arena at the display's rate on a throttled phone profile, the own tank and shells
 > answering on the next frame at 150 ms; and the netcode made visible — the server's ghost over every
-> tank, the overlay, a network lab that breaks only your own link, and a replay of every death.
-> `pnpm dev` runs it. See [`ROADMAP.md`](ROADMAP.md) — hardening (**P0**) is next.
+> tank, the overlay, a network lab that breaks only your own link, and a replay of every death; and
+> the hardening — 240 headless players for 30 minutes, half on a broken link, every tick 1 ms late
+> at p99 and every dropped player back on their own tank. `pnpm dev` runs it. See
+> [`ROADMAP.md`](ROADMAP.md) — packaging (**P1**) is next.
 
 ## What makes it interesting to build
 

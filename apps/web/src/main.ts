@@ -139,5 +139,10 @@ async function play(name: string): Promise<void> {
     }
   });
   showState(client.state);
+  // Hidden, the browser stops the frames and slows the timers: the client stops its inputs and the
+  // server stands the tank (ROADMAP P0); shown, it snaps to the truth. The keys clear on `blur`.
+  const visibility = () => client.setHidden(document.hidden);
+  document.addEventListener('visibilitychange', visibility);
+  visibility();
   setInterval(() => showScores(client.roster, client.you), 250);
 }

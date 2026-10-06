@@ -67,7 +67,15 @@ client                                   server
 - **Resume.** `welcome` carries a 16-byte token. A socket that drops keeps its tank in the room for
   `resumeGrace` ticks (§ 8); a `hello` carrying the token within it gets the same tank back,
   `resumed` set, and a fresh snapshot against nothing. After it, the token is forgotten and the
-  same `hello` joins as a new player, `resumed` clear.
+  same `hello` joins as a new player, `resumed` clear. A token leads only to its own tank: a forged
+  one, an outlived one, or one from a room since closed is no token, and its `hello` joins anew.
+- **A link that dies silently** is noticed from both ends. A snapshot comes every tick, so a client
+  that has heard nothing for 6 s gives the socket up and opens another with its token — a half-open
+  link the browser might not report for minutes, noticed well inside the grace. The server closes
+  a socket whose ping goes unanswered for 10 s (below).
+- **A hidden page** sends no inputs: the browser has stopped its frames and slowed its timers, and
+  the server stands the tank (D15) until the page is shown and the inputs start again from the
+  server's present. The socket stays open, and the views keep coming.
 - **The clock.** A `pong` says which tick the server was in when it answered and how far into it,
   in microseconds. The client keeps the samples with the smallest round trips and runs its own tick
   aligned to the server's (C0).
@@ -268,6 +276,12 @@ that tick — and sends the next as a delta against it. The rules, as `protocol.
 - A client applying a delta refuses one that removes or steps a tank it does not hold, updates one
   twice, gives a new one less than whole, or moves one off the arena — and reconnects.
 
+**A slow socket** (D18) — one whose unsent bytes on the server pass 16 KB, half a second of a busy
+room's snapshots held beyond what the network has taken — is sent no snapshot that tick, and no
+view is recorded as sent. The next snapshot it is sent is a delta against the last one it *was*
+sent, so nothing breaks; the events of the ticks between ride it (64 at most). Past 64 KB unsent,
+the server closes the socket, and the tank waits out the grace for a better link.
+
 **Why no acknowledgements.** A delta protocol over UDP needs the client to acknowledge snapshots,
 because a datagram may never arrive and the server must diff against one that did. Over a WebSocket
 (TCP, [ADR-0003](adr/ADR-0003-websocket.md)) every frame sent on a socket either arrives, in order,
@@ -296,7 +310,8 @@ on average.
 
 ## 6. Events
 
-Events ride in the snapshot of the tick they happened in. Each is a type byte and its fields.
+Events ride in the snapshot of the tick they happened in — or, for a slow socket whose snapshots
+were skipped (§ 5.2), in the next one it is sent. Each is a type byte and its fields.
 
 | Event | Type | Fields | Sent to |
 | --- | --- | --- | --- |
@@ -315,6 +330,10 @@ Events ride in the snapshot of the tick they happened in. Each is a type byte an
 | `NAME` | `3` | `hello`'s name breaks § 4.1 | asks for another name |
 | `RATE` | `4` | more than twice the tick rate of inputs, for a second | reconnects after a pause |
 | `FULL` | `5` | the server will not open another room | says so, retries later |
+
+Past twenty a second, the other frames a client may send — `ping`, `lab`, `stall` — are ignored
+rather than refused: a ping is answered, and a flood of them would have the server writing for its
+sender.
 
 A client that receives a frame it cannot decode treats it as deploy skew: it says the page is out
 of date and offers a reload.
@@ -433,3 +452,4 @@ delay. A square rather than a circle: the screen is a rectangle, and the test is
 | D15 | A tick with no input stands the tank still — no stick held, no trigger (§ 4.2). Holding the stick moved the server's tank a tick the client never predicted: in C0's bench, eleven 120 ms hiccups on the way up gave eight wrong predictions held and none stood. | 2026-10-05 |
 | D16 | A shell's fast-forward is its shooter's half round trip **and the ticks its input waited in the server's queue** (§ 4.2), both the server's own measures, under the same cap. The press is that long before the server fires it; with the half round trip alone, the server's shell started a tick or two behind the one the shooter's prediction drew (C2's bench: 16 units against 6 at 150 ms). | 2026-10-06 |
 | D17 | The network lab is two client messages, applied on the server's side of the sender's own socket, as lanes that delay and bunch frames and never lose or reorder one (§ 3.1). Version 1 grows them rather than becoming 2: no message's bytes changed, and no server of version 1 had been deployed. | 2026-10-06 |
+| D18 | A slow socket's snapshots are skipped, not queued, past 16 KB unsent; the next is a delta against the last sent, carrying the skipped ticks' events; past 64 KB the socket is closed (§ 5.2). Queued, a client that stopped reading would hold the server's memory and, reading again, draw seconds-old snapshots. | 2026-10-06 |

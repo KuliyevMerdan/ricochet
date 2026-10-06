@@ -16,6 +16,7 @@ function rig(now = { t: 0 }, link: LabControl | null = null) {
     close: () => {},
     refuse: (code) => (refused = code),
     rttMs: () => null,
+    backlog: () => 0,
     link,
   };
   const lobby = new Lobby({

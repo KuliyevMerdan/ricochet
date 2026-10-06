@@ -114,8 +114,8 @@ export function createSockets(
           if (open()) ws.send(frame, { binary: true });
         });
       },
-      close() {
-        ws.close(CLOSED_BY_SERVER, 'replaced by another connection');
+      close(reason = 'replaced by another connection') {
+        ws.close(CLOSED_BY_SERVER, reason);
         setTimeout(() => ws.terminate(), 2000).unref();
       },
       refuse(code) {
@@ -130,6 +130,9 @@ export function createSockets(
         const sorted = [...probe.rtts].sort((a, b) => a - b);
         return sorted[Math.floor(sorted.length / 2)] ?? null;
       },
+      // What `ws` holds unsent. The lab's lanes are the network, not the server: a frame waiting in
+      // one has left as far as the server can tell.
+      backlog: () => ws.bufferedAmount,
       link,
     };
     const connection = new Connection(socket, lobby, clock);
