@@ -296,9 +296,6 @@ writing — the questions [`ROADMAP.md`](ROADMAP.md) leaves to a block:
   Safari has supported since iOS 13 for the controllers Apple lists — and it was tested here only
   as a stand-in pad in Chromium. P1's real device says whether it works, or the README says it
   does not.
-- **A real phone.** C1's frames were measured in a phone's profile on a desktop GPU, and bounded
-  below on SwiftShader (62 fps in the stress run, 8 of 1,244 frames over 25 ms) — a phone's GPU lies
-  between the two. P1's live demo is measured on a real device.
 - **Toolchain majors held back.** TypeScript 7, Vitest 5, ESLint 10 and dependency-cruiser 18 were
   out at S0; the workspace pins the majors the three sibling projects run on (TypeScript 5,
   Vitest 3, ESLint 9, dependency-cruiser 16), so a break is never two problems at once. Move them

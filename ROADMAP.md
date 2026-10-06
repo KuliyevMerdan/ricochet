@@ -648,7 +648,9 @@ later with the prediction off, and on the next frame again with it back on.
 this laptop to Frankfurt, three runs): bots in the room, the ghost on, 300 ms added, the drop back
 on the same tank through Render's proxy — in **4.9–5.6 s**; a key moved the own tank on **the next
 frame** predicted, **332–628 ms** later with the prediction off (the real round trip, the lab's
-300 ms and the interpolation delay).
+300 ms and the interpolation delay). **On an iPhone** (2026-10-06, by hand): the live demo
+plays — the name, the sticks, the arena, the lab — with nothing seen to stutter; its frames were
+not counted on the device, so C1's numbers remain the profile's.
 
 ---
 
