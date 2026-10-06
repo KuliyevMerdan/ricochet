@@ -5,7 +5,7 @@ repository.
 
 ## Project status
 
-> ✅ **Every block has landed: the game plays in a browser, shows its netcode, holds 240 players, and ships as one image.**
+> ✅ **Every block has landed: the game plays in a browser, shows its netcode, holds 240 players, and is live.**
 > **S0 landed 2026-10-03**: the pnpm + Turborepo workspace of ten units, strict TypeScript with no DOM and no Node unless a unit opts in,
 > the dependency graph as dependency-cruiser allow-lists, purity and exactness as ESLint rules — all
 > *proven to fire* against deliberately illegal fixtures — and CI running `pnpm check`. **S1 landed
@@ -54,8 +54,8 @@ repository.
 > origin, deployed to Render's free tier from a Blueprint once CI passes (ADR-0004); Playwright in
 > CI — two players who see, chase and kill each other through the lab and a drop, and a stranger's
 > two minutes against the local server and against the image; the README's GIF and
-> `docs/architecture.md`'s three diagrams. The live demo's address, and the stranger run against
-> it, land with the first deploy.
+> `docs/architecture.md`'s three diagrams. The live demo is <https://ricochet-demo.onrender.com/>; the stranger
+> passed against it 3 of 3, in 4.9–5.6 s, the drop resumed through Render's proxy.
 >
 > The canon is four documents: `CLAUDE.md` (this file), [`ROADMAP.md`](ROADMAP.md) (the task map),
 > [`docs/protocol.md`](docs/protocol.md) (the wire contract) and [`docs/adr/`](docs/adr) (the
@@ -299,9 +299,6 @@ writing — the questions [`ROADMAP.md`](ROADMAP.md) leaves to a block:
 - **A real phone.** C1's frames were measured in a phone's profile on a desktop GPU, and bounded
   below on SwiftShader (62 fps in the stress run, 8 of 1,244 frames over 25 ms) — a phone's GPU lies
   between the two. P1's live demo is measured on a real device.
-- **The lab on the live demo.** The lab is opt-in in production (`RICOCHET_LAB=on`); P1's image
-  turns it on, and its E2E measures the drop behind the host's proxy — the crash project's live
-  demo never heard a close its server sent through Render's, only one the page did.
 - **Toolchain majors held back.** TypeScript 7, Vitest 5, ESLint 10 and dependency-cruiser 18 were
   out at S0; the workspace pins the majors the three sibling projects run on (TypeScript 5,
   Vitest 3, ESLint 9, dependency-cruiser 16), so a break is never two problems at once. Move them

@@ -622,7 +622,7 @@ _1–2 days._
       (`RICOCHET_STATIC_DIR`; hashed assets for a year, `index.html` never); `Dockerfile`, CI
       builds and runs it and plays the E2E against it (the `image` job); a Render Blueprint
       (`render.yaml`, deploying once CI passes), its free tier's sleep and fresh start decided in
-      [ADR-0004](docs/adr/ADR-0004-demo-host.md).
+      [ADR-0004](docs/adr/ADR-0004-demo-host.md). Live at <https://ricochet-demo.onrender.com/> (2026-10-06).
 - [x] Playwright E2E in CI (2026-10-06, `e2e/duel.spec.ts`): two browser contexts join one room
       and each sees the other move; one shoots the other dead and both see the kill; the lab's
       300 ms in one of them leaves its own tank responsive and the other's view smooth; a dropped
@@ -643,8 +643,12 @@ network from the lab, and watch their tank stay under their thumb — in under t
 **Measured locally 2026-10-06** (`e2e/stranger.spec.ts` against the built server serving the built
 page, the lab on, six bots — the image's shape): from the name form to a dropped socket back on its
 own tank in **3.6 s**; at 300 ms a key moved the own tank on **the next frame** predicted, **390 ms**
-later with the prediction off, and on the next frame again with it back on. The live link's run
-(`E2E_BASE_URL=… pnpm e2e:live`) follows the first deploy.
+later with the prediction off, and on the next frame again with it back on.
+**Met 2026-10-06 on the live demo** (`E2E_BASE_URL=https://ricochet-demo.onrender.com pnpm e2e:live`, from
+this laptop to Frankfurt, three runs): bots in the room, the ghost on, 300 ms added, the drop back
+on the same tank through Render's proxy — in **4.9–5.6 s**; a key moved the own tank on **the next
+frame** predicted, **332–628 ms** later with the prediction off (the real round trip, the lab's
+300 ms and the interpolation delay).
 
 ---
 

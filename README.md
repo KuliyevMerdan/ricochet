@@ -5,10 +5,10 @@ drive. Top-down and twin-stick: the hull goes where you steer, the turret where 
 shell bounces off a wall once. Node + TypeScript on the server, Phaser in the browser, one WebSocket
 carrying a binary protocol.
 
-**▶ The live demo's address lands with its first deploy** — on a desktop, a phone or with a
-gamepad; bots fill every room, so you are never alone. Free hosting: the first visit after a quiet
-spell takes about a minute to wake the server, and every wake is a fresh arena
-([ADR-0004](docs/adr/ADR-0004-demo-host.md)). Until then, `docker run` below is the same image.
+**▶ [Play the live demo](https://ricochet-demo.onrender.com/)** — on a desktop, a phone or with a gamepad; bots fill every
+room, so you are never alone. Free hosting: the first visit after a quiet spell takes about a
+minute to wake the server, and every wake is a fresh arena
+([ADR-0004](docs/adr/ADR-0004-demo-host.md)).
 
 ![The server's ghost over every tank, 300 ms added from the lab, the overlay's graph, a death and its replay](docs/media/arena.gif)
 
@@ -36,7 +36,7 @@ it, off its wall._
 
 The lab breaks only your own link, on the server's side of your socket — nobody else in the room
 feels it. The E2E suite does all of this as a stranger would, against the live demo too
-(`E2E_BASE_URL=… pnpm e2e:live`) — in under 4 seconds against a local server.
+(`E2E_BASE_URL=… pnpm e2e:live`) — in about 5 seconds against the live demo.
 
 ## What makes it interesting to build
 
