@@ -24,6 +24,7 @@ const server = createServer({
     pingMs: 250,
     bots: RULES.botsFillTo,
     lab: false,
+    staticDir: null,
     logLevel: 'silent',
   },
   logger: false,

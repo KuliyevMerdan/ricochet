@@ -17,6 +17,7 @@ const config = {
   maxRooms: 5,
   pingMs: 100,
   bots: 0,
+  staticDir: null,
   logLevel: 'silent',
 } as const;
 const server = createServer({ config: { ...config, lab: true }, logger: false });

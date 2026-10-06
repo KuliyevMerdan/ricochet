@@ -41,6 +41,10 @@ interpolation switchable off, the kill replay; a stranger's steps through the pa
 **P0 landed 2026-10-06** — hardening: a silent socket given up, a hidden page suspended, a slow
 socket skipped then closed (protocol D18), floods bounded; 240 load clients for 30 minutes, the
 tick 1.06 ms late at p99, every short drop back on its own tank.
+**P1 landed 2026-10-06** — packaging: one image serving the page beside the socket, a Render
+Blueprint deploying once CI passes (ADR-0004); Playwright in CI — two players who find, watch and
+kill each other through the lab and a drop, and a stranger's done-when in under 4 s; the README and
+the architecture's diagrams.
 
 ---
 
@@ -614,20 +618,33 @@ a minute at 150 ± 40 ms, 4.6 at 300 ± 100 ms with a stall every 90 s.
 
 _1–2 days._
 
-- [ ] One image, one origin: the server serves the built page beside the socket; `Dockerfile`, CI
-      builds and runs it and plays the E2E against it; a Render Blueprint, its free tier's sleep
-      and fresh start decided in an ADR as before.
-- [ ] Playwright E2E in CI: two browser contexts join one room and each sees the other move; one
-      shoots the other dead and both see the kill; the lab's 300 ms in one of them leaves its own
-      tank responsive and the other's view smooth; a dropped socket resumes the same tank.
-- [ ] README: a GIF above the fold — the ghost on, the lab adding latency, the tank still crisp —
-      the five decisions in a paragraph each, the bench and load numbers, "try to break it".
-- [ ] `docs/architecture.md`: one tick on the server, one frame on the client, the input's life from
-      the key to the acknowledgement, as diagrams.
-- [ ] The workspace README's row for this project — and its first line, which still says iGaming.
+- [x] One image, one origin (2026-10-06): the server serves the built page beside the socket
+      (`RICOCHET_STATIC_DIR`; hashed assets for a year, `index.html` never); `Dockerfile`, CI
+      builds and runs it and plays the E2E against it (the `image` job); a Render Blueprint
+      (`render.yaml`, deploying once CI passes), its free tier's sleep and fresh start decided in
+      [ADR-0004](docs/adr/ADR-0004-demo-host.md).
+- [x] Playwright E2E in CI (2026-10-06, `e2e/duel.spec.ts`): two browser contexts join one room
+      and each sees the other move; one shoots the other dead and both see the kill; the lab's
+      300 ms in one of them leaves its own tank responsive and the other's view smooth; a dropped
+      socket resumes the same tank. Beside it `e2e/stranger.spec.ts`, the done-when below, run
+      against the local server, the image and the live demo. **Diverged:** the E2E found a
+      gamepad's dead zone cut axis by axis, flattening any aim within 14° of level — it is the
+      stick's push now (`stickOf`).
+- [x] README (2026-10-06): a GIF above the fold — the ghost on, the lab adding latency, the tank
+      still crisp — the five decisions in a paragraph each, the bench and load numbers, "try to
+      break it".
+- [x] [`docs/architecture.md`](docs/architecture.md) (2026-10-06): one tick on the server, one
+      frame on the client, the input's life from the key to the acknowledgement, as diagrams.
+- [x] The workspace README's row for this project — and its first line, which no longer says
+      iGaming alone (2026-10-06).
 
 **Done when:** a stranger can open the live link, play against bots, turn on the ghost, break the
 network from the lab, and watch their tank stay under their thumb — in under two minutes.
+**Measured locally 2026-10-06** (`e2e/stranger.spec.ts` against the built server serving the built
+page, the lab on, six bots — the image's shape): from the name form to a dropped socket back on its
+own tank in **3.6 s**; at 300 ms a key moved the own tank on **the next frame** predicted, **390 ms**
+later with the prediction off, and on the next frame again with it back on. The live link's run
+(`E2E_BASE_URL=… pnpm e2e:live`) follows the first deploy.
 
 ---
 

@@ -21,7 +21,8 @@
     "format:check": "prettier --check .",
     "prepare": "husky",
     "dev": "turbo run dev --filter=@ricochet/server --filter=@ricochet/web",
-    "e2e": "turbo run build --filter=@ricochet/sim... --output-logs=errors-only && playwright test --config e2e/playwright.config.ts"
+    "e2e": "turbo run build --filter=@ricochet/sim... --filter=@ricochet/server... --filter=@ricochet/web... --output-logs=errors-only && playwright test --config e2e/playwright.config.ts",
+    "e2e:live": "playwright test --config e2e/playwright.config.ts"
   },
   "devDependencies": {
     "@ricochet/protocol": "workspace:*",
@@ -39,7 +40,8 @@
     "vitest": "catalog:",
     "@playwright/test": "catalog:",
     "vite": "catalog:",
-    "@ricochet/sim": "workspace:*"
+    "@ricochet/sim": "workspace:*",
+    "@ricochet/bots": "workspace:*"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs}": [

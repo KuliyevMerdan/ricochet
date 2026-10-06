@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { MIN_HALF, frameFor, replayTick } from './framing.js';
 import { History, SAMPLE_HZ, SECONDS } from './graph.js';
 import { stickOf } from './input/keyboard.js';
+import { stickOf as padStick } from './input/pad.js';
 import { msOf } from './lab.js';
 import { stickVector } from './input/touch.js';
 import { DEFAULTS, parseSettings } from './settings.js';
@@ -151,5 +152,16 @@ describe('the kill replay', () => {
     expect(f.x).toBe(7000);
     expect(f.y).toBe(4000);
     expect(f.half).toBe(5000 + 1280); // the wider side, and a margin
+  });
+});
+
+describe('the gamepad', () => {
+  it('rests inside the dead zone by the stick’s push, and keeps a shallow aim’s angle', () => {
+    expect(padStick(0.1, 0.1)).toBeNull();
+    expect(padStick(1, 0)).toBe(0);
+    // 11° below level: the vertical axis alone is inside the dead zone, and must not be cut.
+    const a = (11 / 360) * 2 * Math.PI;
+    expect(Math.abs((padStick(Math.cos(a), Math.sin(a)) ?? 0) - 31)).toBeLessThanOrEqual(1);
+    expect(padStick(-Math.cos(a), -Math.sin(a))).not.toBe(512);
   });
 });

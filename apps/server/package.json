@@ -23,10 +23,11 @@
     "soak": "RICOCHET_SOAK_S=300 vitest run --config ../../config/vitest.package.ts src/server.test.ts"
   },
   "dependencies": {
-    "@ricochet/sim": "workspace:*",
+    "@fastify/static": "catalog:",
     "@ricochet/bots": "workspace:*",
-    "@ricochet/protocol": "workspace:*",
     "@ricochet/geom": "workspace:*",
+    "@ricochet/protocol": "workspace:*",
+    "@ricochet/sim": "workspace:*",
     "fastify": "catalog:",
     "ws": "catalog:"
   },

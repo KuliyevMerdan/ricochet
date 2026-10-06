@@ -47,10 +47,12 @@ jobs:
 
   # CLAUDE.md § The invariant that makes prediction exact, measured where a player runs it: the
   # soak's pinned 5,000-tick run replayed in Chromium (V8), Firefox (SpiderMonkey) and WebKit
-  # (JavaScriptCore), each required to end in the same world (`e2e/determinism.spec.ts`).
+  # (JavaScriptCore), each required to end in the same world (`e2e/determinism.spec.ts`). Then the
+  # game itself in Chromium against the built server serving the built page: two players finding,
+  # watching and killing each other through the lab and a drop, and a stranger's two minutes.
   engines:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -66,5 +68,59 @@ jobs:
       - name: Browsers
         run: pnpm exec playwright install --with-deps chromium firefox webkit
 
-      - name: The pinned run in three engines
+      - name: The pinned run in three engines; the duel and the stranger
         run: pnpm run e2e
+
+      - name: E2E traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-traces
+          path: test-results/
+          retention-days: 7
+
+  # The image Render deploys, built and run as Render runs it — a production server, the lab on — and
+  # the stranger played against it through nothing but the page.
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t ricochet .
+
+      - name: Run it
+        run: |
+          docker run -d --name arena -p 8080:8080 -e RICOCHET_LAB=on ricochet
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8080/ready && exit 0; sleep 1; done
+          docker logs arena; exit 1
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: The stranger, against the image
+        run: pnpm run e2e:live
+        env:
+          E2E_BASE_URL: http://127.0.0.1:8080
+
+      - name: Server log
+        if: always()
+        run: docker logs arena
+
+      - name: E2E traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-e2e-traces
+          path: test-results/
+          retention-days: 7

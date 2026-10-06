@@ -1,0 +1,29 @@
+# The live demo — a Render Blueprint (ROADMAP P1, ADR-0004).
+#
+# One free web service built from the repository's Dockerfile: apps/server serving the game's
+# socket and the page from one origin. Free because a portfolio demo should cost nothing to keep
+# up; the price, stated in ADR-0004 and the README, is a spin-down after 15 idle minutes and a
+# fresh server at every wake — new rooms, new bots, and any token from before leading nowhere, so
+# a returning page simply joins again.
+#
+# No secrets. PORT is injected by Render and read by the server; every value below is a choice
+# this host makes about the demo, not a credential.
+
+services:
+  - type: web
+    name: ricochet-demo
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Answers once the tick is running.
+    healthCheckPath: /ready
+    # Deploy only commits CI has passed — the demo is never a build `pnpm check` or the E2E rejected.
+    autoDeployTrigger: checksPass
+    envVars:
+      # The network lab: latency, jitter, a stall — on the visitor's own socket only
+      # (docs/protocol.md § 3.1).
+      - key: RICOCHET_LAB
+        value: 'on'
